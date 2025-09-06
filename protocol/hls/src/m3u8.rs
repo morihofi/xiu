@@ -1,17 +1,21 @@
+use chrono::Duration;
 use {
     super::{errors::MediaError, ts::Ts},
     bytes::BytesMut,
     std::{collections::VecDeque, fs, fs::File, io::Write},
 };
+use chrono::prelude::*;
 
+/**
+Representation of a M3u8 HLS Segment
+*/
 pub struct Segment {
-    /*ts duration*/
-    pub duration: i64,
+    pub duration: i64, // ts fragment duration in ms
     pub discontinuity: bool,
-    /*ts name*/
-    pub name: String,
+    pub name: String, // ts fragment name
     path: String,
     pub is_eof: bool,
+    pub pdt: Option<DateTime<Utc>>, // Program Data Time (time when it was broadcasted)
 }
 
 impl Segment {
@@ -21,6 +25,7 @@ impl Segment {
         name: String,
         path: String,
         is_eof: bool,
+        pdt: Option<DateTime<Utc>>,
     ) -> Self {
         Self {
             duration,
@@ -28,6 +33,7 @@ impl Segment {
             name,
             path,
             is_eof,
+            pdt,
         }
     }
 }
@@ -112,8 +118,19 @@ impl M3u8 {
             self.sequence_no += 1;
         }
         self.duration = std::cmp::max(duration, self.duration);
+
+        // Determine date/time for the new segment:
+        // If there is already a segment with PDT -> integrate forward,
+        // otherwise assume “now” as the start time.
+        let next_pdt = if let Some(prev) = self.segments.back() {
+            prev.pdt
+                .map(|t| t + Duration::milliseconds(prev.duration))
+        } else {
+            Some(Utc::now())
+        };
+
         let (ts_name, ts_path) = self.ts_handler.write(ts_data)?;
-        let segment = Segment::new(duration, discontinuity, ts_name, ts_path, is_eof);
+        let segment = Segment::new(duration, discontinuity, ts_name, ts_path, is_eof, next_pdt);
 
         if self.need_record {
             self.update_vod_m3u8(&segment);
@@ -151,12 +168,13 @@ impl M3u8 {
         if is_vod {
             m3u8_header += "#EXT-X-MEDIA-SEQUENCE:0\n";
             m3u8_header += "#EXT-X-PLAYLIST-TYPE:VOD\n";
-            if(self.version <= 7){ // allow cache is deprecated/removed in HLS Version 7 and up
+            if self.version <= 7 {
+                // allow cache is deprecated/removed in HLS Version 7 and up
                 m3u8_header += "#EXT-X-ALLOW-CACHE:YES\n";
             }
         } else {
-            m3u8_header += "#EXT-X-PLAYLIST-TYPE:EVENT\n";
             m3u8_header += format!("#EXT-X-MEDIA-SEQUENCE:{}\n", self.sequence_no).as_str();
+            m3u8_header += "#EXT-X-PLAYLIST-TYPE:EVENT\n";
         }
 
         m3u8_header
@@ -169,12 +187,17 @@ impl M3u8 {
             if segment.discontinuity {
                 m3u8_content += "#EXT-X-DISCONTINUITY\n";
             }
-            m3u8_content += format!(
+            if let Some(pdt) = segment.pdt {
+                m3u8_content += &format!(
+                    "#EXT-X-PROGRAM-DATE-TIME:{}\n",
+                    pdt.to_rfc3339_opts(SecondsFormat::Millis, false)
+                );
+            }
+            m3u8_content += &format!(
                 "#EXTINF:{:.3}\n{}\n",
                 segment.duration as f64 / 1000.0,
                 segment.name
-            )
-            .as_str();
+            );
 
             if segment.is_eof {
                 m3u8_content += "#EXT-X-ENDLIST\n";
@@ -184,7 +207,7 @@ impl M3u8 {
 
         let m3u8_path = format!("{}/{}", self.m3u8_folder, self.live_m3u8_name);
 
-        let mut file_handler = File::create(m3u8_path).unwrap();
+        let mut file_handler = File::create(m3u8_path)?;
         file_handler.write_all(m3u8_content.as_bytes())?;
 
         Ok(m3u8_content)

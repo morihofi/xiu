@@ -22,6 +22,7 @@ streamhub = { path = "../../library/streamhub/" }
 xmpegts = { path = "../../library/container/mpegts/" }
 xflv = { path = "../../library/container/flv/" }
 commonlib = { path = "../../library/common/" }
+chrono = "0.4.41"
 
 [dependencies.tokio]
 version = "1.4.0"

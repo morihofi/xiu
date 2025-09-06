@@ -1,10 +1,10 @@
+use chrono::prelude::*;
 use chrono::Duration;
 use {
     super::{errors::MediaError, ts::Ts},
     bytes::BytesMut,
     std::{collections::VecDeque, fs, fs::File, io::Write},
 };
-use chrono::prelude::*;
 
 /**
 Representation of a M3u8 HLS Segment
@@ -127,13 +127,12 @@ impl M3u8 {
         // If there is already a segment with PDT -> integrate forward,
         // otherwise assume “now” as the start time.
         let next_pdt = if let Some(prev) = self.segments.back() {
-            prev.pdt
-                .map(|t| t + Duration::milliseconds(prev.duration))
+            prev.pdt.map(|t| t + Duration::milliseconds(prev.duration))
         } else {
             Some(Utc::now())
         };
 
-        let (ts_name, ts_path) = self.ts_handler.write(ts_data)?;
+        let (ts_name, ts_path) = self.ts_handler.write(ts_data, next_pdt)?;
         let segment = Segment::new(duration, discontinuity, ts_name, ts_path, is_eof, next_pdt);
 
         if self.need_record {

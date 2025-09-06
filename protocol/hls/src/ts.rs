@@ -1,11 +1,11 @@
 use {
     super::errors::MediaError,
     bytes::BytesMut,
+    chrono::prelude::*,
     std::{fs, fs::File, io::Write},
 };
 
 pub struct Ts {
-    ts_number: u32,
     live_path: String,
 }
 
@@ -15,17 +15,18 @@ impl Ts {
         let live_path = format!("{}/{}/{}", base, app_name, stream_name);
         fs::create_dir_all(live_path.clone()).unwrap();
 
-        Self {
-            ts_number: 0,
-            live_path,
-        }
+        Self { live_path }
     }
-    pub fn write(&mut self, data: BytesMut) -> Result<(String, String), MediaError> {
-        let ts_file_name = format!("{}.ts", self.ts_number);
+    pub fn write(
+        &mut self,
+        data: BytesMut,
+        pdt: Option<DateTime<Utc>>,
+    ) -> Result<(String, String), MediaError> {
+        let ts_time = pdt.unwrap_or_else(Utc::now);
+        let ts_file_name = format!("{}.ts", ts_time.format("%Y%m%dT%H%M%S"));
         let ts_file_path = format!("{}/{}", self.live_path, ts_file_name);
-        self.ts_number += 1;
 
-        let mut ts_file_handler = File::create(ts_file_path.clone())?;
+        let mut ts_file_handler = File::create(&ts_file_path)?;
         ts_file_handler.write_all(&data[..])?;
 
         Ok((ts_file_name, ts_file_path))

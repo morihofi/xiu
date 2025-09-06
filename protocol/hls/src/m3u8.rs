@@ -127,7 +127,7 @@ impl M3u8 {
     pub fn clear(&mut self) -> Result<(), MediaError> {
         if self.need_record {
             let vod_m3u8_path = format!("{}/{}", self.m3u8_folder, self.vod_m3u8_name);
-            let mut file_handler = File::create(vod_m3u8_path).unwrap();
+            let mut file_handler = File::create(vod_m3u8_path)?;
             self.vod_m3u8_content += "#EXT-X-ENDLIST\n";
             file_handler.write_all(self.vod_m3u8_content.as_bytes())?;
         } else {
@@ -151,8 +151,11 @@ impl M3u8 {
         if is_vod {
             m3u8_header += "#EXT-X-MEDIA-SEQUENCE:0\n";
             m3u8_header += "#EXT-X-PLAYLIST-TYPE:VOD\n";
-            m3u8_header += "#EXT-X-ALLOW-CACHE:YES\n";
+            if(self.version <= 7){ // allow cache is deprecated/removed in HLS Version 7 and up
+                m3u8_header += "#EXT-X-ALLOW-CACHE:YES\n";
+            }
         } else {
+            m3u8_header += "#EXT-X-PLAYLIST-TYPE:EVENT\n";
             m3u8_header += format!("#EXT-X-MEDIA-SEQUENCE:{}\n", self.sequence_no).as_str();
         }
 

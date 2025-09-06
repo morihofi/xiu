@@ -10,8 +10,9 @@ pub struct Ts {
 }
 
 impl Ts {
-    pub fn new(app_name: String, stream_name: String) -> Self {
-        let live_path = format!("./{app_name}/{stream_name}");
+    pub fn new(app_name: String, stream_name: String, data_dir: Option<String>) -> Self {
+        let base = data_dir.unwrap_or_else(|| String::from("."));
+        let live_path = format!("{}/{}/{}", base, app_name, stream_name);
         fs::create_dir_all(live_path.clone()).unwrap();
 
         Self {

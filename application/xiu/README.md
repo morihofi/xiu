@@ -81,6 +81,7 @@ Start the service with the following command to get help:
       -w, --webrtc <port>   Specify the whip/whep listening port.(e.g.:8900).
       -f, --httpflv <port>  Specify the HTTP-FLV listening port(e.g.:8080).
       -s, --hls <port>      Specify the HLS listening port(e.g.:8081).
+      -d, --data-dir <path> Specify the directory for generated data.
       -l, --log <level>     Specify the log level. [possible values: trace, debug, info, warn, error, debug]
       -h, --help            Print help.
       -V, --version         Print version.

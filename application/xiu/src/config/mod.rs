@@ -17,6 +17,7 @@ pub struct Config {
     pub httpnotify: Option<HttpNotifierConfig>,
     pub authsecret: AuthSecretConfig,
     pub log: Option<LogConfig>,
+    pub data_dir: Option<String>,
 }
 
 impl Config {
@@ -27,6 +28,7 @@ impl Config {
         httpflv_port: usize,
         hls_port: usize,
         log_level: String,
+        data_dir: Option<String>,
     ) -> Self {
         let mut rtmp_config: Option<RtmpConfig> = None;
         if rtmp_port > 0 {
@@ -93,6 +95,7 @@ impl Config {
             httpnotify: None,
             authsecret: AuthSecretConfig::default(),
             log: log_config,
+            data_dir,
         }
     }
 }

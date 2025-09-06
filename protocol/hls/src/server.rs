@@ -18,6 +18,12 @@ type Result<T> = std::result::Result<T, GenericError>;
 static NOTFOUND: &[u8] = b"Not Found";
 static UNAUTHORIZED: &[u8] = b"Unauthorized";
 
+#[derive(Debug, Clone)]
+struct AppState {
+    auth: Option<Auth>,
+    data_dir: String,
+}
+
 #[derive(Debug)]
 enum HlsFileType {
     Playlist,
@@ -80,14 +86,14 @@ impl HlsPath {
         })
     }
 
-    fn to_file_path(&self) -> String {
+    fn to_file_path(&self, base: &str) -> String {
         let ext = match self.file_type {
             HlsFileType::Playlist => Self::M3U8_EXT,
             HlsFileType::Segment => Self::TS_EXT,
         };
         format!(
-            "./{}/{}/{}.{}",
-            self.app_name, self.stream_name, self.file_name, ext
+            "{}/{}/{}/{}.{}",
+            base, self.app_name, self.stream_name, self.file_name, ext
         )
     }
 }
@@ -106,8 +112,8 @@ fn response_not_found() -> Response<Body> {
         .unwrap()
 }
 
-async fn response_file(hls_path: &HlsPath) -> Response<Body> {
-    let file_path = hls_path.to_file_path();
+async fn response_file(hls_path: &HlsPath, base: &str) -> Response<Body> {
+    let file_path = hls_path.to_file_path(base);
 
     if let Ok(file) = File::open(&file_path).await {
         let builder = Response::builder().header("Content-Type", hls_path.file_type.content_type());
@@ -120,7 +126,7 @@ async fn response_file(hls_path: &HlsPath) -> Response<Body> {
     response_not_found()
 }
 
-async fn handle_connection(State(auth): State<Option<Auth>>, req: Request<Body>) -> Response<Body> {
+async fn handle_connection(State(state): State<AppState>, req: Request<Body>) -> Response<Body> {
     let path = req.uri().path();
     let query_string = req.uri().query().map(|s| s.to_string());
 
@@ -129,7 +135,9 @@ async fn handle_connection(State(auth): State<Option<Auth>>, req: Request<Body>)
         None => return response_not_found(),
     };
 
-    if let (Some(auth_val), HlsFileType::Playlist) = (auth.as_ref(), &hls_path.file_type) {
+    if let (Some(auth_val), HlsFileType::Playlist) =
+        (state.auth.as_ref(), &hls_path.file_type)
+    {
         if auth_val
             .authenticate(
                 &hls_path.stream_name,
@@ -142,10 +150,10 @@ async fn handle_connection(State(auth): State<Option<Auth>>, req: Request<Body>)
         }
     }
 
-    response_file(&hls_path).await
+    response_file(&hls_path, &state.data_dir).await
 }
 
-pub async fn run(port: usize, auth: Option<Auth>) -> Result<()> {
+pub async fn run(port: usize, auth: Option<Auth>, data_dir: Option<String>) -> Result<()> {
     let listen_address = format!("0.0.0.0:{port}");
     let sock_addr: SocketAddr = listen_address.parse().unwrap();
 
@@ -153,7 +161,12 @@ pub async fn run(port: usize, auth: Option<Auth>) -> Result<()> {
 
     log::info!("Hls server listening on http://{}", sock_addr);
 
-    let handle_connection = handle_connection.with_state(auth);
+    let state = AppState {
+        auth,
+        data_dir: data_dir.unwrap_or_else(|| String::from(".")),
+    };
+
+    let handle_connection = handle_connection.with_state(state);
 
     axum::serve(listener, handle_connection.into_make_service()).await?;
 
@@ -172,7 +185,7 @@ mod tests {
         assert_eq!(playlist.stream_name, "stream");
         assert_eq!(playlist.file_name, "stream");
         assert!(matches!(playlist.file_type, HlsFileType::Playlist));
-        assert_eq!(playlist.to_file_path(), "./live/stream/stream.m3u8");
+        assert_eq!(playlist.to_file_path("."), "./live/stream/stream.m3u8");
         assert_eq!(
             playlist.file_type.content_type(),
             "application/vnd.apple.mpegurl"
@@ -184,7 +197,7 @@ mod tests {
         assert_eq!(segment.stream_name, "stream");
         assert_eq!(segment.file_name, "123");
         assert!(matches!(segment.file_type, HlsFileType::Segment));
-        assert_eq!(segment.to_file_path(), "./live/stream/123.ts");
+        assert_eq!(segment.to_file_path("."), "./live/stream/123.ts");
         assert_eq!(segment.file_type.content_type(), "video/mp2t");
 
         // Negative

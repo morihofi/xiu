@@ -330,10 +330,12 @@ impl Service {
 
             let event_producer = stream_hub.get_hub_event_sender();
             let cient_event_consumer = stream_hub.get_client_event_consumer();
+            let data_dir = self.cfg.data_dir.clone();
             let mut hls_remuxer = HlsRemuxer::new(
                 cient_event_consumer,
                 event_producer,
                 hls_cfg_value.need_record,
+                data_dir.clone(),
             );
 
             tokio::spawn(async move {
@@ -345,7 +347,7 @@ impl Service {
             let port = hls_cfg_value.port;
             let auth = Self::gen_auth(&hls_cfg_value.auth, &self.cfg.authsecret);
             tokio::spawn(async move {
-                if let Err(err) = hls_server::run(port, auth).await {
+                if let Err(err) = hls_server::run(port, auth, data_dir).await {
                     log::error!("hls server error: {}", err);
                 }
             });

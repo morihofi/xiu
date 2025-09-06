@@ -33,7 +33,13 @@ pub struct Flv2HlsRemuxer {
 }
 
 impl Flv2HlsRemuxer {
-    pub fn new(duration: i64, app_name: String, stream_name: String, need_record: bool) -> Self {
+    pub fn new(
+        duration: i64,
+        app_name: String,
+        stream_name: String,
+        need_record: bool,
+        data_dir: Option<String>,
+    ) -> Self {
         let mut ts_muxer = TsMuxer::new();
         let audio_pid = ts_muxer
             .add_stream(epsi_stream_type::PSI_STREAM_AAC, BytesMut::new())
@@ -60,7 +66,14 @@ impl Flv2HlsRemuxer {
             video_pid,
             audio_pid,
 
-            m3u8_handler: M3u8::new(duration, 6, app_name, stream_name, need_record),
+            m3u8_handler: M3u8::new(
+                duration,
+                6,
+                app_name,
+                stream_name,
+                need_record,
+                data_dir,
+            ),
         }
     }
 

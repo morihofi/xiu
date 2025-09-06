@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
                 .value_name("path")
                 .help("Specify the xiu server configuration file path.")
                 .value_parser(value_parser!(String))
-                .conflicts_with_all(["rtmp", "rtsp", "httpflv", "hls", "log"]),
+                .conflicts_with_all(["rtmp", "rtsp", "httpflv", "hls", "log", "data_dir"]),
         )
         .arg(
             Arg::new("rtmp")
@@ -70,6 +70,15 @@ async fn main() -> Result<()> {
                 .value_name("port")
                 .help("Specify the hls listening port.(e.g.:8081)")
                 .value_parser(value_parser!(usize))
+                .conflicts_with("config_file_path"),
+        )
+        .arg(
+            Arg::new("data_dir")
+                .long("data-dir")
+                .short('d')
+                .value_name("path")
+                .help("Specify the directory for generated data.")
+                .value_parser(value_parser!(String))
                 .conflicts_with("config_file_path"),
         )
         .arg(
@@ -152,6 +161,7 @@ async fn main() -> Result<()> {
             Some(val) => val.clone(),
             None => String::from("info"),
         };
+        let data_dir = matches.get_one::<String>("data_dir").cloned();
 
         Config::new(
             rtmp_port,
@@ -160,6 +170,7 @@ async fn main() -> Result<()> {
             httpflv_port,
             hls_port,
             log_level,
+            data_dir,
         )
     };
 

@@ -10,6 +10,7 @@ pub struct HlsRemuxer {
     client_event_consumer: BroadcastEventReceiver,
     event_producer: StreamHubEventSender,
     need_record: bool,
+    data_dir: Option<String>,
 }
 
 impl HlsRemuxer {
@@ -17,11 +18,13 @@ impl HlsRemuxer {
         consumer: BroadcastEventReceiver,
         event_producer: StreamHubEventSender,
         need_record: bool,
+        data_dir: Option<String>,
     ) -> Self {
         Self {
             client_event_consumer: consumer,
             event_producer,
             need_record,
+            data_dir,
         }
     }
 
@@ -41,6 +44,7 @@ impl HlsRemuxer {
                             self.event_producer.clone(),
                             5,
                             self.need_record,
+                            self.data_dir.clone(),
                         );
 
                         tokio::spawn(async move {

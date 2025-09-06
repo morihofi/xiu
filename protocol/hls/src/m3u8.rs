@@ -68,13 +68,17 @@ impl M3u8 {
         app_name: String,
         stream_name: String,
         need_record: bool,
+        data_dir: Option<String>,
     ) -> Self {
-        let m3u8_folder = format!("./{app_name}/{stream_name}");
+        let base = data_dir.unwrap_or_else(|| String::from("."));
+        let app_clone = app_name.clone();
+        let stream_clone = stream_name.clone();
+        let m3u8_folder = format!("{}/{}/{}", base, app_name, stream_name);
         fs::create_dir_all(m3u8_folder.clone()).unwrap();
 
-        let live_m3u8_name = format!("{stream_name}.m3u8");
+        let live_m3u8_name = format!("{stream_clone}.m3u8");
         let vod_m3u8_name = if need_record {
-            format!("vod_{stream_name}.m3u8")
+            format!("vod_{stream_clone}.m3u8")
         } else {
             String::default()
         };
@@ -87,7 +91,7 @@ impl M3u8 {
             segments: VecDeque::new(),
             m3u8_folder,
             live_m3u8_name,
-            ts_handler: Ts::new(app_name, stream_name),
+            ts_handler: Ts::new(app_clone, stream_clone, Some(base)),
             // record,
             need_record,
             vod_m3u8_content: String::default(),

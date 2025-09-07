@@ -5,13 +5,15 @@ use serde_derive::Deserialize;
 use crate::errors::{AuthError, AuthErrorValue};
 use crate::scanf;
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 pub enum AuthAlgorithm {
     #[default]
     #[serde(rename = "simple")]
     Simple,
     #[serde(rename = "md5")]
     Md5,
+    #[serde(rename = "none")]
+    None,
 }
 
 pub enum SecretCarrier {
@@ -109,6 +111,10 @@ impl Auth {
         secret: &Option<SecretCarrier>,
         is_pull: bool,
     ) -> Result<(), AuthError> {
+        if self.algorithm == AuthAlgorithm::None || self.auth_type == AuthType::None {
+            return Ok(());
+        }
+
         if self.auth_type == AuthType::Both
             || is_pull && (self.auth_type == AuthType::Pull)
             || !is_pull && (self.auth_type == AuthType::Push)
@@ -152,6 +158,25 @@ impl Auth {
                 let digest_str = format!("{:x}", md5::compute(raw_data));
                 auth_str == digest_str
             }
+            AuthAlgorithm::None => true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_no_auth_algorithm() {
+        let auth = Auth::new(
+            "".to_string(),
+            "".to_string(),
+            None,
+            AuthAlgorithm::None,
+            AuthType::Pull,
+        );
+        let stream = "stream".to_string();
+        assert!(auth.authenticate(&stream, &None, true).is_ok());
     }
 }

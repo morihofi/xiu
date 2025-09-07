@@ -9,7 +9,7 @@ gop_num = 0
 [rtmp.auth]
 pull_enabled = false
 push_enabled = false
-# simple or md5
+# simple, md5 or none
 algorithm = "simple"
 # pull streams from other server node.
 [rtmp.pull]
@@ -49,7 +49,7 @@ port = 445
 [rtsp.auth]
 pull_enabled = true
 push_enabled = true
-# simple or md5
+# simple, md5 or none
 algorithm = "simple"
 
 ##########################
@@ -61,7 +61,7 @@ port = 8083
 [webrtc.auth]
 pull_enabled = true
 push_enabled = true
-# simple or md5
+# simple, md5 or none
 algorithm = "simple"
 
 ##########################
@@ -72,7 +72,7 @@ enabled = false
 port = 8081
 [httpflv.auth]
 pull_enabled = true
-# simple or md5
+# simple, md5 or none
 algorithm = "simple"
 
 
@@ -85,7 +85,7 @@ port = 8080
 need_record = false
 [hls.auth]
 pull_enabled = true
-# simple or md5
+# simple, md5 or none
 algorithm = "simple"
 
 

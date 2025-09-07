@@ -2,10 +2,42 @@ use bytes::BytesMut;
 use bytesio::bytes_reader::BytesReader;
 use streamhub::{define::MediaPacket, ProtocolAdapter};
 
-use crate::rtp::{rtp_header::RtpHeader, utils::{Marshal, Unmarshal}, RtpPacket};
+use crate::rtp::{
+    rtp_header::RtpHeader,
+    utils::{Marshal, Unmarshal},
+    RtpPacket,
+};
 
 /// Adapter for converting between RTSP payloads and [`MediaPacket`].
 pub struct RtspAdapter;
+
+impl RtspAdapter {
+    /// Convert a [`MediaPacket`] into an RTP/RTSP payload using the provided
+    /// interleaved channel identifier.
+    pub fn from_packet(&self, packet: MediaPacket, channel_id: u8) -> BytesMut {
+        let rtp_packet = RtpPacket {
+            header: RtpHeader {
+                timestamp: packet.pts as u32,
+                marker: if packet.is_keyframe { 1 } else { 0 },
+                ..Default::default()
+            },
+            payload: packet.payload,
+            ..Default::default()
+        };
+
+        if let Ok(bytes) = rtp_packet.marshal() {
+            // Wrap with RTSP interleaved header ('$' + channel + len)
+            let mut framed = BytesMut::with_capacity(bytes.len() + 4);
+            framed.extend_from_slice(&[b'$', channel_id]);
+            framed.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
+            framed.extend_from_slice(&bytes[..]);
+            framed
+        } else {
+            // On failure, just return the raw payload
+            rtp_packet.payload
+        }
+    }
+}
 
 impl ProtocolAdapter for RtspAdapter {
     /// Convert an RTP/RTSP payload into a [`MediaPacket`].
@@ -61,26 +93,47 @@ impl ProtocolAdapter for RtspAdapter {
     /// timestamp and keyframe flag are written to the RTP header. The result is
     /// framed using the RTSP interleaved format with channel id 0.
     fn from_packet(&self, packet: MediaPacket) -> BytesMut {
-        let rtp_packet = RtpPacket {
-            header: RtpHeader {
-                timestamp: packet.pts as u32,
-                marker: if packet.is_keyframe { 1 } else { 0 },
-                ..Default::default()
-            },
-            payload: packet.payload,
-            ..Default::default()
+        RtspAdapter::from_packet(self, packet, 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::BytesMut;
+
+    #[test]
+    fn frames_use_distinct_channel_ids() {
+        let adapter = RtspAdapter;
+        let payload = BytesMut::from(&[1u8, 2, 3][..]);
+
+        let video_packet = MediaPacket {
+            stream_id: Default::default(),
+            audio_codec: None,
+            video_codec: None,
+            pts: 0,
+            dts: 0,
+            is_keyframe: true,
+            payload: payload.clone(),
         };
 
-        if let Ok(bytes) = rtp_packet.marshal() {
-            // Wrap with RTSP interleaved header ('$' + channel + len)
-            let mut framed = BytesMut::with_capacity(bytes.len() + 4);
-            framed.extend_from_slice(&[b'$', 0]);
-            framed.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
-            framed.extend_from_slice(&bytes[..]);
-            framed
-        } else {
-            // On failure, just return the raw payload
-            rtp_packet.payload
-        }
+        let audio_packet = MediaPacket {
+            stream_id: Default::default(),
+            audio_codec: None,
+            video_codec: None,
+            pts: 0,
+            dts: 0,
+            is_keyframe: false,
+            payload,
+        };
+
+        let video_framed = adapter.from_packet(video_packet, 0);
+        let audio_framed = adapter.from_packet(audio_packet, 2);
+
+        assert_eq!(video_framed[0], b'$');
+        assert_eq!(audio_framed[0], b'$');
+        assert_eq!(video_framed[1], 0);
+        assert_eq!(audio_framed[1], 2);
+        assert_ne!(video_framed[1], audio_framed[1]);
     }
 }

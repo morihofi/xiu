@@ -118,7 +118,9 @@ impl M3u8 {
         if segment_count >= self.live_ts_count {
             let segment = self.segments.pop_front().unwrap();
             if !self.need_record {
-                self.ts_handler.delete(segment.path);
+                if let Err(err) = self.ts_handler.delete(segment.path) {
+                    log::error!("failed to delete segment file: {}", err);
+                }
             }
 
             self.sequence_no += 1;
@@ -154,7 +156,9 @@ impl M3u8 {
             file_handler.write_all(self.vod_m3u8_content.as_bytes())?;
         } else {
             for segment in &self.segments {
-                self.ts_handler.delete(segment.path.clone());
+                if let Err(err) = self.ts_handler.delete(segment.path.clone()) {
+                    log::error!("failed to delete segment file during clear: {}", err);
+                }
             }
         }
 

@@ -31,7 +31,8 @@ impl Ts {
 
         Ok((ts_file_name, ts_file_path))
     }
-    pub fn delete(&mut self, ts_file_name: String) {
-        fs::remove_file(ts_file_name).unwrap();
+    pub fn delete(&mut self, ts_file_name: String) -> Result<(), MediaError> {
+        fs::remove_file(ts_file_name)?;
+        Ok(())
     }
 }

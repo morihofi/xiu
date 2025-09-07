@@ -30,7 +30,7 @@ use {
     errors::{StreamHubError, StreamHubErrorValue},
     std::collections::HashMap,
     std::sync::Arc,
-    stream::StreamIdentifier,
+    stream::{StreamIdentifier, StreamKey},
     tokio::sync::{broadcast, mpsc, mpsc::UnboundedReceiver, Mutex},
     utils::Uuid,
 };
@@ -501,7 +501,7 @@ impl StreamDataTransceiver {
 
 pub struct StreamsHub {
     //stream identifier to transceiver event sender
-    streams: HashMap<StreamIdentifier, TransceiverEventSender>,
+    streams: HashMap<StreamKey, TransceiverEventSender>,
     //construct UnSubscribe and UnPublish event from Subscribe and Publish event to kick off client
     un_pub_sub_events: HashMap<Uuid, StreamHubEvent>,
     //event is consumed in Stream hub, produced from other protocol sessions
@@ -619,23 +619,29 @@ impl StreamsHub {
                         }
                     };
 
-                    let result = match self
-                        .publish(identifier.clone(), receiver, stream_handler)
-                        .await
-                    {
-                        Ok(statistic_data_sender) => {
-                            if let Some(notifier) = &self.notifier {
-                                notifier.on_publish_notify(&message).await;
-                            }
-                            self.un_pub_sub_events
-                                .insert(info.id, StreamHubEvent::UnPublish { identifier, info });
+                    let result = match identifier.to_key() {
+                        Some(key) => {
+                            match self.publish(key.clone(), identifier.clone(), receiver, stream_handler).await {
+                                Ok(statistic_data_sender) => {
+                                    if let Some(notifier) = &self.notifier {
+                                        notifier.on_publish_notify(&message).await;
+                                    }
+                                    self.un_pub_sub_events.insert(
+                                        info.id,
+                                        StreamHubEvent::UnPublish { identifier, info },
+                                    );
 
-                            Ok((frame_sender, packet_sender, Some(statistic_data_sender)))
+                                    Ok((frame_sender, packet_sender, Some(statistic_data_sender)))
+                                }
+                                Err(err) => {
+                                    log::error!("event_loop Publish err: {}", err);
+                                    Err(err)
+                                }
+                            }
                         }
-                        Err(err) => {
-                            log::error!("event_loop Publish err: {}", err);
-                            Err(err)
-                        }
+                        None => Err(StreamHubError {
+                            value: StreamHubErrorValue::NoAppOrStreamName,
+                        }),
                     };
 
                     if result_sender.send(result).is_err() {
@@ -647,12 +653,14 @@ impl StreamsHub {
                     identifier,
                     info: _,
                 } => {
-                    if let Err(err) = self.unpublish(&identifier) {
-                        log::error!(
-                            "event_loop Unpublish err: {} with identifier: {}",
-                            err,
-                            identifier
-                        );
+                    if let Some(key) = identifier.to_key() {
+                        if let Err(err) = self.unpublish(&key) {
+                            log::error!(
+                                "event_loop Unpublish err: {} with identifier: {}",
+                                err,
+                                identifier
+                            );
+                        }
                     }
 
                     if let Some(notifier) = &self.notifier {
@@ -695,20 +703,29 @@ impl StreamsHub {
                         }
                     };
 
-                    let rv = match self.subscribe(&identifier, info_clone, sender).await {
-                        Ok(statistic_data_sender) => {
-                            if let Some(notifier) = &self.notifier {
-                                notifier.on_play_notify(&message).await;
-                            }
+                    let rv = match identifier.to_key() {
+                        Some(key) => {
+                            match self.subscribe(&key, info_clone, sender).await {
+                                Ok(statistic_data_sender) => {
+                                    if let Some(notifier) = &self.notifier {
+                                        notifier.on_play_notify(&message).await;
+                                    }
 
-                            self.un_pub_sub_events
-                                .insert(sub_id, StreamHubEvent::UnSubscribe { identifier, info });
-                            Ok((receiver, Some(statistic_data_sender)))
+                                    self.un_pub_sub_events.insert(
+                                        sub_id,
+                                        StreamHubEvent::UnSubscribe { identifier, info },
+                                    );
+                                    Ok((receiver, Some(statistic_data_sender)))
+                                }
+                                Err(err) => {
+                                    log::error!("event_loop Subscribe error: {}", err);
+                                    Err(err)
+                                }
+                            }
                         }
-                        Err(err) => {
-                            log::error!("event_loop Subscribe error: {}", err);
-                            Err(err)
-                        }
+                        None => Err(StreamHubError {
+                            value: StreamHubErrorValue::NoAppOrStreamName,
+                        }),
                     };
 
                     if result_sender.send(rv).is_err() {
@@ -716,9 +733,11 @@ impl StreamsHub {
                     }
                 }
                 StreamHubEvent::UnSubscribe { identifier, info } => {
-                    if self.unsubscribe(&identifier, info).is_ok() {
-                        if let Some(notifier) = &self.notifier {
-                            notifier.on_stop_notify(&message).await;
+                    if let Some(key) = identifier.to_key() {
+                        if self.unsubscribe(&key, info).is_ok() {
+                            if let Some(notifier) = &self.notifier {
+                                notifier.on_stop_notify(&message).await;
+                            }
                         }
                     }
                 }
@@ -729,7 +748,20 @@ impl StreamsHub {
                     uuid,
                     result_sender,
                 } => {
-                    let result = match self.api_statistic(top_n, identifier, uuid).await {
+                    let rv = match identifier {
+                        Some(id) => {
+                            if let Some(key) = id.to_key() {
+                                self.api_statistic(top_n, Some(key), uuid).await
+                            } else {
+                                Err(StreamHubError {
+                                    value: StreamHubErrorValue::NoAppOrStreamName,
+                                })
+                            }
+                        }
+                        None => self.api_statistic(top_n, None, uuid).await,
+                    };
+
+                    let result = match rv {
                         Ok(rv) => rv,
                         Err(err) => {
                             log::error!("event_loop api error: {}", err);
@@ -773,8 +805,10 @@ impl StreamsHub {
                     }
                 }
                 StreamHubEvent::Request { identifier, sender } => {
-                    if let Err(err) = self.request(&identifier, sender) {
-                        log::error!("event_loop request error: {}", err);
+                    if let Some(key) = identifier.to_key() {
+                        if let Err(err) = self.request(&key, sender) {
+                            log::error!("event_loop request error: {}", err);
+                        }
                     }
                 }
             }
@@ -783,12 +817,12 @@ impl StreamsHub {
 
     fn request(
         &mut self,
-        identifier: &StreamIdentifier,
+        key: &StreamKey,
         sender: mpsc::UnboundedSender<Information>,
     ) -> Result<(), StreamHubError> {
-        if let Some(producer) = self.streams.get_mut(identifier) {
+        if let Some(producer) = self.streams.get_mut(key) {
             let event = TransceiverEvent::Request { sender };
-            log::info!("Request:  stream identifier: {}", identifier);
+            log::info!("Request:  stream key: {:?}", key);
             producer.send(event).map_err(|_| StreamHubError {
                 value: StreamHubErrorValue::SendError,
             })?;
@@ -799,24 +833,24 @@ impl StreamsHub {
     async fn api_statistic(
         &mut self,
         top_n: Option<usize>,
-        identifier: Option<StreamIdentifier>,
+        key: Option<StreamKey>,
         uuid: Option<Uuid>,
     ) -> Result<Value, StreamHubError> {
         if self.streams.is_empty() {
             return Ok(json!({}));
         }
-        log::info!("api_statistic:  stream identifier: {:?}", identifier);
+        log::info!("api_statistic:  stream key: {:?}", key);
         let (stream_sender, mut stream_receiver) = mpsc::unbounded_channel();
 
         let mut stream_count: usize = 1;
 
-        if let Some(identifier) = identifier {
-            if let Some(event_sender) = self.streams.get_mut(&identifier) {
+        if let Some(key) = key {
+            if let Some(event_sender) = self.streams.get_mut(&key) {
                 let event = TransceiverEvent::Api {
                     sender: stream_sender.clone(),
                     uuid,
                 };
-                log::info!("api_statistic:  stream identifier: {}", identifier);
+                log::info!("api_statistic:  stream key: {:?}", key);
                 event_sender.send(event).map_err(|_| StreamHubError {
                     value: StreamHubErrorValue::SendError,
                 })?;
@@ -963,18 +997,18 @@ impl StreamsHub {
     //player subscribe a stream
     pub async fn subscribe(
         &mut self,
-        identifer: &StreamIdentifier,
+        key: &StreamKey,
         sub_info: SubscriberInfo,
         sender: DataSender,
     ) -> Result<StatisticDataSender, StreamHubError> {
-        if let Some(event_sender) = self.streams.get_mut(identifer) {
+        if let Some(event_sender) = self.streams.get_mut(key) {
             let (result_sender, result_receiver) = oneshot::channel();
             let event = TransceiverEvent::Subscribe {
                 sender,
                 info: sub_info,
                 result_sender,
             };
-            log::info!("subscribe:  stream identifier: {}", identifer);
+            log::info!("subscribe:  stream key: {:?}", key);
             event_sender.send(event).map_err(|_| StreamHubError {
                 value: StreamHubErrorValue::SendError,
             })?;
@@ -983,11 +1017,14 @@ impl StreamsHub {
         }
 
         if self.rtmp_pull_enabled {
-            log::info!("subscribe: try to pull stream, identifier: {}", identifer);
+            log::info!("subscribe: try to pull stream, key: {:?}", key);
 
             let client_event = BroadcastEvent::Subscribe {
                 id: String::from("rtmp_relay"),
-                identifier: identifer.clone(),
+                identifier: StreamIdentifier::Rtmp {
+                    app_name: key.app_name.clone(),
+                    stream_name: key.stream_name.clone(),
+                },
                 server_address: None,
                 result_sender: None,
             };
@@ -1007,19 +1044,19 @@ impl StreamsHub {
 
     pub fn unsubscribe(
         &mut self,
-        identifer: &StreamIdentifier,
+        key: &StreamKey,
         sub_info: SubscriberInfo,
     ) -> Result<(), StreamHubError> {
-        match self.streams.get_mut(identifer) {
+        match self.streams.get_mut(key) {
             Some(producer) => {
-                log::info!("unsubscribe....:{}", identifer);
+                log::info!("unsubscribe....:{:?}", key);
                 let event = TransceiverEvent::UnSubscribe { info: sub_info };
                 producer.send(event).map_err(|_| StreamHubError {
                     value: StreamHubErrorValue::SendError,
                 })?;
             }
             None => {
-                log::info!("unsubscribe None....:{}", identifer);
+                log::info!("unsubscribe None....:{:?}", key);
                 return Err(StreamHubError {
                     value: StreamHubErrorValue::NoAppName,
                 });
@@ -1032,11 +1069,12 @@ impl StreamsHub {
     //publish a stream
     pub async fn publish(
         &mut self,
+        key: StreamKey,
         identifier: StreamIdentifier,
         receiver: DataReceiver,
         handler: Arc<dyn TStreamHandler>,
     ) -> Result<StatisticDataSender, StreamHubError> {
-        if self.streams.get(&identifier).is_some() {
+        if self.streams.get(&key).is_some() {
             return Err(StreamHubError {
                 value: StreamHubErrorValue::Exists,
             });
@@ -1059,7 +1097,7 @@ impl StreamsHub {
             log::info!("transceiver run success, idetifier: {}", identifier_clone);
         }
 
-        self.streams.insert(identifier.clone(), event_sender);
+        self.streams.insert(key.clone(), event_sender);
 
         if self.rtmp_push_enabled || self.hls_enabled || self.rtmp_remuxer_enabled {
             let client_event = BroadcastEvent::Publish { identifier };
@@ -1075,15 +1113,15 @@ impl StreamsHub {
         Ok(statistic_data_sender)
     }
 
-    fn unpublish(&mut self, identifier: &StreamIdentifier) -> Result<(), StreamHubError> {
-        match self.streams.get_mut(identifier) {
+    fn unpublish(&mut self, key: &StreamKey) -> Result<(), StreamHubError> {
+        match self.streams.get_mut(key) {
             Some(producer) => {
                 let event = TransceiverEvent::UnPublish {};
                 producer.send(event).map_err(|_| StreamHubError {
                     value: StreamHubErrorValue::SendError,
                 })?;
-                self.streams.remove(identifier);
-                log::info!("unpublish remove stream, stream identifier: {}", identifier);
+                self.streams.remove(key);
+                log::info!("unpublish remove stream, stream key: {:?}", key);
             }
             None => {
                 return Err(StreamHubError {

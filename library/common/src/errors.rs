@@ -1,34 +1,29 @@
 #![allow(non_local_definitions)]
-use failure::{Backtrace, Fail};
-use std::fmt;
+use std::{error::Error, fmt};
 
 #[derive(Debug)]
 pub struct AuthError {
     pub value: AuthErrorValue,
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, thiserror::Error)]
 pub enum AuthErrorValue {
-    #[fail(display = "token is not correct.")]
+    #[error("token is not correct.")]
     TokenIsNotCorrect,
-    #[fail(display = "no token found.")]
+    #[error("no token found.")]
     NoTokenFound,
-    #[fail(display = "invalid token format.")]
-    InvalidTokenFormat
+    #[error("invalid token format.")]
+    InvalidTokenFormat,
 }
 
 impl fmt::Display for AuthError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.value, f)
     }
 }
 
-impl Fail for AuthError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        self.value.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.value.backtrace()
+impl Error for AuthError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.value.source()
     }
 }

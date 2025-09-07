@@ -2462,6 +2462,7 @@ name = "rtmp"
 version = "0.4.1"
 dependencies = [
  "async-trait",
+ "base64 0.21.2",
  "byteorder",
  "bytes",
  "bytesio",

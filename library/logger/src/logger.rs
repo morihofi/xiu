@@ -3,7 +3,7 @@ use {
     anyhow::Result,
     chrono::prelude::*,
     env_logger::{Builder, Env, Target},
-    job_scheduler_ng::{Job, JobScheduler},
+    job_scheduler_ng::{Job, JobScheduler, Schedule},
     std::{
         env, fs,
         fs::{File, OpenOptions},
@@ -70,6 +70,19 @@ fn get_log_file_name(rotate: Rotate) -> String {
     }
 }
 
+const DEFAULT_SCHEDULER_RULE: &str = "0 * * * * *";
+
+fn parse_scheduler_rule(rule: &str) -> Schedule {
+    rule.parse().unwrap_or_else(|err| {
+        log::error!(
+                "invalid scheduler rule: {rule}, err: {err}; using default rule '{DEFAULT_SCHEDULER_RULE}'"
+            );
+        DEFAULT_SCHEDULER_RULE
+            .parse()
+            .expect("default scheduler rule should be valid")
+    })
+}
+
 pub fn gen_log_file(rotate: Rotate, path: String) -> Result<File> {
     let file_name = get_log_file_name(rotate);
     let full_path = format!("{path}/{file_name}.log");
@@ -99,7 +112,7 @@ pub fn gen_log_file_thread_run(
             Rotate::Day => "0 0 0 * * *",
         };
 
-        sched.add(Job::new(scheduler_rule.parse().unwrap(), || {
+        sched.add(Job::new(parse_scheduler_rule(scheduler_rule), || {
             let dt: DateTime<Local> = Local::now();
 
             let cur_number = format!(
@@ -110,7 +123,7 @@ pub fn gen_log_file_thread_run(
                 dt.hour(),
                 dt.minute()
             );
-            println!("time number: {cur_number}");
+            log::info!("time number: {cur_number}");
 
             match gen_log_file(rotate.to_owned(), path.to_owned()) {
                 Ok(file) => {
@@ -118,7 +131,7 @@ pub fn gen_log_file_thread_run(
                     *state = file;
                 }
                 Err(err) => {
-                    println!("gen_log_file err : {err}");
+                    log::error!("gen_log_file err : {err}");
                 }
             }
         }));
@@ -155,7 +168,7 @@ impl Logger {
         let rotate_val = rotate.unwrap();
 
         if let Err(err) = fs::create_dir_all(path_val.clone()) {
-            println!("cannot create folder: {path_val}, err: {err}");
+            log::error!("cannot create folder: {path_val}, err: {err}");
         }
         let file = gen_log_file(rotate_val.clone(), path_val.clone())?;
         let target = FileTarget::new(file)?;
@@ -176,7 +189,7 @@ impl Logger {
     pub fn stop(&self) {
         if let Some(sender) = &self.close_sender {
             if let Err(err) = sender.send(true) {
-                println!("Logger close err :{err}");
+                log::error!("Logger close err :{err}");
             }
         }
     }
@@ -184,8 +197,8 @@ impl Logger {
 #[cfg(test)]
 mod tests {
 
-    use super::Logger;
-    use super::Rotate;
+    use super::{parse_scheduler_rule, Logger, Rotate, DEFAULT_SCHEDULER_RULE};
+    use chrono::Utc;
     use std::fs::OpenOptions;
     use std::io::Write;
     use std::time::Duration;
@@ -220,12 +233,23 @@ mod tests {
         match OpenOptions::new().append(true).open("abc.txt") {
             Ok(mut file) => {
                 if let Err(err) = file.write_all(&[b'h', b'e', b'l', b'l', b'o', b'o']) {
-                    println!("file write_all: {err}");
+                    log::error!("file write_all: {err}");
                 }
             }
             Err(err) => {
-                println!("file create: {err}");
+                log::error!("file create: {err}");
             }
         }
+    }
+
+    #[test]
+    fn test_invalid_scheduler_rule_falls_back_to_default() {
+        let default_schedule = parse_scheduler_rule(DEFAULT_SCHEDULER_RULE);
+        let invalid_schedule = parse_scheduler_rule("invalid");
+
+        let default_next = default_schedule.upcoming(Utc).next();
+        let invalid_next = invalid_schedule.upcoming(Utc).next();
+
+        assert_eq!(default_next, invalid_next);
     }
 }

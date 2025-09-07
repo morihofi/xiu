@@ -44,6 +44,8 @@ use {
     },
 };
 
+const ANNEXB_NALU_START_CODE: [u8; 4] = [0x00, 0x00, 0x00, 0x01];
+
 pub struct Common {
     /* Used to mark the subscriber's the data producer
     in channels and delete it from map when unsubscribe
@@ -659,6 +661,56 @@ impl TStreamHandler for RtmpStreamHandler {
                 }
             }
             DataSender::Packet { sender } => {
+                if let Some(FrameData::Video { data, .. }) = cache.get_video_seq() {
+                    let mut reader = BytesReader::new(data.clone());
+                    if let Ok(tag) = VideoTagHeader::unmarshal(&mut reader) {
+                        let remain = reader.extract_remaining_bytes();
+                        if let define::AvcCodecId::H264 =
+                            define::u8_2_avc_codec_id(tag.codec_id)
+                        {
+                            let mut r = BytesReader::new(remain);
+                            let _ = r.read_u8(); // configurationVersion
+                            let _ = r.read_u8(); // profile
+                            let _ = r.read_u8(); // compatibility
+                            let _ = r.read_u8(); // level
+                            let _ = r.read_u8(); // lengthSizeMinusOne
+                            let num_sps = (r.read_u8().unwrap_or(0) & 0x1f) as usize;
+                            if num_sps > 0 {
+                                let sps_len = r.read_u16::<BigEndian>().unwrap_or(0) as usize;
+                                let sps = r.read_bytes(sps_len).unwrap_or_default();
+                                let num_pps = r.read_u8().unwrap_or(0) as usize;
+                                if num_pps > 0 {
+                                    let pps_len = r.read_u16::<BigEndian>().unwrap_or(0) as usize;
+                                    let pps = r.read_bytes(pps_len).unwrap_or_default();
+                                    let mut payload = BytesMut::new();
+                                    payload.extend_from_slice(&ANNEXB_NALU_START_CODE);
+                                    payload.extend_from_slice(&sps[..]);
+                                    payload.extend_from_slice(&ANNEXB_NALU_START_CODE);
+                                    payload.extend_from_slice(&pps[..]);
+                                    let _ = sender.send(PacketData::Video {
+                                        timestamp: 0,
+                                        data: payload,
+                                        is_keyframe: true,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(FrameData::Audio { data, .. }) = cache.get_audio_seq() {
+                    let mut reader = BytesReader::new(data.clone());
+                    if let Ok(tag) = AudioTagHeader::unmarshal(&mut reader) {
+                        let remain = reader.extract_remaining_bytes();
+                        if tag.sound_format == define::SoundFormat::AAC as u8
+                            && tag.aac_packet_type == define::aac_packet_type::AAC_SEQHDR
+                        {
+                            let _ = sender.send(PacketData::Audio {
+                                timestamp: 0,
+                                data: remain,
+                            });
+                        }
+                    }
+                }
                 if let Some(gops_data) = cache.get_gops_data() {
                     for gop in gops_data {
                         for frame in gop.get_frame_data() {
@@ -883,13 +935,24 @@ mod tests {
         {
             let mut cache_lock = handler.cache.lock().await;
             let cache = cache_lock.as_mut().unwrap();
-            let audio = BytesMut::from(&[0xAF, 0x01, 0x11, 0x22][..]);
-            cache.save_audio_data(&audio, 0).await.unwrap();
+
+            let audio_seq = BytesMut::from(&[0xAF, 0x00, 0x12, 0x10][..]);
+            cache.save_audio_data(&audio_seq, 0).await.unwrap();
+            let video_seq = BytesMut::from(&[
+                0x17, 0x00, 0x00, 0x00, 0x00, 0x01, 0x64, 0x00, 0x1E, 0xFF, 0xE1, 0x00, 0x07,
+                0x67, 0x42, 0x00, 0x1E, 0x8D, 0x68, 0x40, 0x01, 0x00, 0x04, 0x68, 0xCE, 0x06,
+                0xE2,
+            ][..]);
+            cache.save_video_data(&video_seq, 0).await.unwrap();
+
             let mut video = BytesMut::new();
             video.extend_from_slice(&[0x17, 0x01, 0x00, 0x00, 0x00]);
             video.extend_from_slice(&[0x00, 0x00, 0x00, 0x04]);
             video.extend_from_slice(&[0x65, 0x88, 0x84, 0x21]);
-            cache.save_video_data(&video, 0).await.unwrap();
+            cache.save_video_data(&video, 1).await.unwrap();
+
+            let audio = BytesMut::from(&[0xAF, 0x01, 0x11, 0x22][..]);
+            cache.save_audio_data(&audio, 1).await.unwrap();
         }
 
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -898,13 +961,20 @@ mod tests {
             .await
             .unwrap();
 
-        let mut received = 0;
+        let mut packets = Vec::new();
         while let Ok(pkt) = rx.try_recv() {
-            match pkt {
-                PacketData::Audio { .. } | PacketData::Video { .. } => received += 1,
-            }
+            packets.push(pkt);
         }
 
-        assert!(received > 0);
+        assert_eq!(packets.len(), 4);
+        assert!(matches!(
+            packets[0],
+            PacketData::Video {
+                timestamp: 0,
+                is_keyframe: true,
+                ..
+            }
+        ));
+        assert!(matches!(packets[1], PacketData::Audio { timestamp: 0, .. }));
     }
 }

@@ -217,7 +217,7 @@ impl RtcpChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rtp::define::ANNEXB_NALU_START_CODE;
+    use crate::rtp::define::{ANNEXB_NALU_START_CODE, FU_A, FU_END, FU_START};
     use bytes::{Bytes, BytesMut};
     use bytesio::bytesio::{NetType, TNetIO};
     use bytesio::bytesio_errors::BytesIOError;
@@ -286,5 +286,77 @@ mod tests {
         assert_eq!(locked[0].header.version, 2);
         assert_eq!(locked[1].header.version, 2);
         assert_eq!(locked[0].header.seq_number + 1, locked[1].header.seq_number);
+    }
+
+    #[tokio::test]
+    async fn multi_nalu_frame_results_in_multiple_packets() {
+        let codec_info = RtspCodecInfo {
+            codec_id: RtspCodecId::H264,
+            payload_type: 96,
+            ..Default::default()
+        };
+        let mut channel = RtpChannel::new(codec_info);
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> =
+            Arc::new(Mutex::new(Box::new(DummyIO)));
+        channel.create_packer(io);
+
+        let packets = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let packets_clone = packets.clone();
+
+        channel.on_packet_handler(Box::new(move |_io, packet| {
+            let packets_inner = packets_clone.clone();
+            Box::pin(async move {
+                packets_inner.lock().unwrap().push(packet);
+                Ok(())
+            })
+        }));
+
+        let mut frame = BytesMut::new();
+        frame.extend_from_slice(&ANNEXB_NALU_START_CODE);
+        frame.extend_from_slice(&[0x65, 0x88, 0x84]);
+        frame.extend_from_slice(&ANNEXB_NALU_START_CODE);
+        frame.extend_from_slice(&[0x41, 0x9A, 0x22]);
+
+        channel.on_frame(&mut frame, 0).await.unwrap();
+
+        let locked = packets.lock().unwrap();
+        assert_eq!(locked.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn large_keyframe_is_fragmented() {
+        let codec_info = RtspCodecInfo {
+            codec_id: RtspCodecId::H264,
+            payload_type: 96,
+            ..Default::default()
+        };
+        let mut channel = RtpChannel::new(codec_info);
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> =
+            Arc::new(Mutex::new(Box::new(DummyIO)));
+        channel.create_packer(io);
+
+        let packets = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let packets_clone = packets.clone();
+
+        channel.on_packet_handler(Box::new(move |_io, packet| {
+            let packets_inner = packets_clone.clone();
+            Box::pin(async move {
+                packets_inner.lock().unwrap().push(packet);
+                Ok(())
+            })
+        }));
+
+        let mut frame = BytesMut::new();
+        frame.extend_from_slice(&ANNEXB_NALU_START_CODE);
+        frame.extend_from_slice(&[0x65]);
+        frame.extend_from_slice(&[0x88; 2000]);
+
+        channel.on_frame(&mut frame, 0).await.unwrap();
+
+        let locked = packets.lock().unwrap();
+        assert!(locked.len() > 1);
+        assert_eq!(locked[0].payload[0] & 0x1F, FU_A);
+        assert!(locked[0].payload[1] & FU_START > 0);
+        assert!(locked.last().unwrap().payload[1] & FU_END > 0);
     }
 }

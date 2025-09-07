@@ -12,3 +12,4 @@ pub mod rtsp_utils;
 pub mod sdp;
 pub mod session;
 pub mod adapter;
+pub mod writer;

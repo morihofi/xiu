@@ -1,7 +1,11 @@
 use crate::config::{AuthConfig, AuthSecretConfig};
 use commonlib::auth::AuthType;
 use std::sync::Arc;
-use xrtsp::relay::pull_client_manager::RtspPullClientManager;
+use xrtsp::{
+    relay::pull_client_manager::RtspPullClientManager,
+    rtsp::RtspServer,
+    writer::RtspWriter,
+};
 
 use {
     super::api,
@@ -18,7 +22,6 @@ use {
     },
     streamhub::{notify::http::HttpNotifier, notify::Notifier, StreamsHub},
     tokio,
-    xrtsp::rtsp::RtspServer,
     xwebrtc::webrtc::WebRTCServer,
 };
 
@@ -198,6 +201,9 @@ impl Service {
             if !rtsp_cfg_value.enabled {
                 return Ok(());
             }
+
+            // Register the RTSP adapter so other protocols can remux to RTSP.
+            let _rtsp_writer = RtspWriter::new(true);
 
             let producer = stream_hub.get_hub_event_sender();
 

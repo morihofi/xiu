@@ -1,13 +1,13 @@
 use define::{
-    MediaPacketReceiver, MediaPacketSender, RelayType, StatisticData, StatisticDataReceiver,
-    StatisticDataSender,
+    FrameDataReceiver, PacketDataReceiver, PacketDataSender, RelayType, StatisticData,
+    StatisticDataReceiver, StatisticDataSender,
 };
 use serde_json::{json, Value};
 use statistics::{StatisticSubscriber, StatisticsStream};
 use tokio::sync::oneshot;
 use xflv::define::aac_packet_type;
 
-use crate::define::MediaPacket;
+use crate::define::PacketData;
 
 pub mod define;
 pub mod errors;
@@ -15,13 +15,16 @@ pub mod notify;
 pub mod statistics;
 pub mod stream;
 pub mod utils;
+pub mod adapter;
+
+pub use adapter::ProtocolAdapter;
 
 use {
     crate::notify::Notifier,
     define::{
-        BroadcastEvent, BroadcastEventReceiver, BroadcastEventSender,
-        Information, StreamHubEvent, StreamHubEventReceiver,
-        StreamHubEventSender, SubscriberInfo, TStreamHandler, TransceiverEvent,
+        BroadcastEvent, BroadcastEventReceiver, BroadcastEventSender, DataReceiver, DataSender,
+        FrameData, FrameDataSender, Information, StreamHubEvent, StreamHubEventReceiver,
+        StreamHubEventSender, SubscribeType, SubscriberInfo, TStreamHandler, TransceiverEvent,
         TransceiverEventReceiver, TransceiverEventSender,
     },
     errors::{StreamHubError, StreamHubErrorValue},
@@ -35,12 +38,14 @@ use {
 //Receive audio data/video data/meta data/media info from a publisher and send to players/subscribers
 //Receive statistic information from a publisher and send to api callers.
 pub struct StreamDataTransceiver {
-    //used for receiving MediaPacket data from publishers
-    media_receiver: MediaPacketReceiver,
+    //used for receiving Audio/Video data from publishers
+    data_receiver: DataReceiver,
     //used for receiving event
     event_receiver: TransceiverEventReceiver,
-    //used for sending media data to players/subscribers
-    id_to_media_sender: Arc<Mutex<HashMap<Uuid, MediaPacketSender>>>,
+    //used for sending audio/video frame data to players/subscribers
+    id_to_frame_sender: Arc<Mutex<HashMap<Uuid, FrameDataSender>>>,
+    //used for sending audio/video packet data to players/subscribers
+    id_to_packet_sender: Arc<Mutex<HashMap<Uuid, PacketDataSender>>>,
     //publisher and subscribers use this sender to submit statistical data
     statistic_data_sender: StatisticDataSender,
     //used for receiving statistical data from publishers and subscribers
@@ -53,49 +58,145 @@ pub struct StreamDataTransceiver {
 
 impl StreamDataTransceiver {
     fn new(
-        media_receiver: MediaPacketReceiver,
+        data_receiver: DataReceiver,
         event_receiver: UnboundedReceiver<TransceiverEvent>,
         identifier: StreamIdentifier,
         h: Arc<dyn TStreamHandler>,
     ) -> Self {
         let (statistic_data_sender, statistic_data_receiver) = mpsc::unbounded_channel();
         Self {
-            media_receiver,
+            data_receiver,
             event_receiver,
             statistic_data_sender,
             statistic_data_receiver,
-            id_to_media_sender: Arc::new(Mutex::new(HashMap::new())),
+            id_to_frame_sender: Arc::new(Mutex::new(HashMap::new())),
+            id_to_packet_sender: Arc::new(Mutex::new(HashMap::new())),
             stream_handler: h,
             statistic_data: Arc::new(Mutex::new(StatisticsStream::new(identifier))),
         }
     }
 
-    async fn receive_media_packet(
-        data: Option<MediaPacket>,
-        media_senders: &Arc<Mutex<HashMap<Uuid, MediaPacketSender>>>,
+    async fn receive_frame_data(
+        data: Option<FrameData>,
+        frame_senders: &Arc<Mutex<HashMap<Uuid, FrameDataSender>>>,
     ) {
-        if let Some(packet) = data {
-            for (_, v) in media_senders.lock().await.iter() {
-                if let Err(err) = v
-                    .send(packet.clone())
-                    .map_err(|_| StreamHubError { value: StreamHubErrorValue::SendError })
-                {
-                    log::error!("Transmiter send error: {}", err);
+        if let Some(val) = data {
+            match val {
+                FrameData::MetaData {
+                    timestamp: _,
+                    data: _,
+                } => {}
+                FrameData::Audio { timestamp, data } => {
+                    let data = FrameData::Audio {
+                        timestamp,
+                        data: data.clone(),
+                    };
+
+                    for (_, v) in frame_senders.lock().await.iter() {
+                        if let Err(audio_err) = v.send(data.clone()).map_err(|_| StreamHubError {
+                            value: StreamHubErrorValue::SendAudioError,
+                        }) {
+                            log::error!("Transmiter send error: {}", audio_err);
+                        }
+                    }
+                }
+                FrameData::Video { timestamp, data } => {
+                    let data = FrameData::Video {
+                        timestamp,
+                        data: data.clone(),
+                    };
+                    for (_, v) in frame_senders.lock().await.iter() {
+                        if let Err(video_err) = v.send(data.clone()).map_err(|_| StreamHubError {
+                            value: StreamHubErrorValue::SendVideoError,
+                        }) {
+                            log::error!("Transmiter send error: {}", video_err);
+                        }
+                    }
+                }
+                FrameData::MediaInfo {
+                    media_info: info_value,
+                } => {
+                    let data = FrameData::MediaInfo {
+                        media_info: info_value,
+                    };
+                    for (_, v) in frame_senders.lock().await.iter() {
+                        if let Err(media_err) = v.send(data.clone()).map_err(|_| StreamHubError {
+                            value: StreamHubErrorValue::SendVideoError,
+                        }) {
+                            log::error!("Transmiter send error: {}", media_err);
+                        }
+                    }
                 }
             }
         }
     }
 
-    async fn receive_media_packet_loop(
+    async fn receive_frame_data_loop(
         mut exit: broadcast::Receiver<()>,
-        mut receiver: MediaPacketReceiver,
-        media_senders: Arc<Mutex<HashMap<Uuid, MediaPacketSender>>>,
+        mut receiver: FrameDataReceiver,
+        frame_senders: Arc<Mutex<HashMap<Uuid, FrameDataSender>>>,
     ) {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     data = receiver.recv() => {
-                       Self::receive_media_packet(data, &media_senders).await;
+                       Self::receive_frame_data(data, &frame_senders).await;
+                    }
+                    _ = exit.recv()=>{
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    async fn receive_packet_data(
+        data: Option<PacketData>,
+        packet_senders: &Arc<Mutex<HashMap<Uuid, PacketDataSender>>>,
+    ) {
+        if let Some(val) = data {
+            match val {
+                PacketData::Audio { timestamp, data } => {
+                    let data = PacketData::Audio {
+                        timestamp,
+                        data: data.clone(),
+                    };
+
+                    for (_, v) in packet_senders.lock().await.iter() {
+                        if let Err(audio_err) = v.send(data.clone()).map_err(|_| StreamHubError {
+                            value: StreamHubErrorValue::SendAudioError,
+                        }) {
+                            log::error!("Transmiter send error: {}", audio_err);
+                        }
+                    }
+                }
+                PacketData::Video { timestamp, data } => {
+                    let data = PacketData::Video {
+                        timestamp,
+                        data: data.clone(),
+                    };
+                    for (_, v) in packet_senders.lock().await.iter() {
+                        if let Err(video_err) = v.send(data.clone()).map_err(|_| StreamHubError {
+                            value: StreamHubErrorValue::SendVideoError,
+                        }) {
+                            log::error!("Transmiter send error: {}", video_err);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn receive_packet_data_loop(
+        mut exit: broadcast::Receiver<()>,
+        mut receiver: PacketDataReceiver,
+        packet_senders: Arc<Mutex<HashMap<Uuid, PacketDataSender>>>,
+    ) {
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    data = receiver.recv() => {
+                       Self::receive_packet_data(data, &packet_senders).await;
                     }
                     _ = exit.recv()=>{
                         break;
@@ -263,7 +364,8 @@ impl StreamDataTransceiver {
         stream_handler: Arc<dyn TStreamHandler>,
         exit: broadcast::Sender<()>,
         mut receiver: TransceiverEventReceiver,
-        media_senders: Arc<Mutex<HashMap<Uuid, MediaPacketSender>>>,
+        packet_senders: Arc<Mutex<HashMap<Uuid, PacketDataSender>>>,
+        frame_senders: Arc<Mutex<HashMap<Uuid, FrameDataSender>>>,
         statistic_sender: StatisticDataSender,
         statistics_data: Arc<Mutex<StatisticsStream>>,
     ) {
@@ -283,7 +385,18 @@ impl StreamDataTransceiver {
                                 log::error!("receive_event_loop send_prior_data err: {}", err);
                                 break;
                             }
-                            media_senders.lock().await.insert(info.id, sender);
+                            match sender {
+                                DataSender::Frame {
+                                    sender: frame_sender,
+                                } => {
+                                    frame_senders.lock().await.insert(info.id, frame_sender);
+                                }
+                                DataSender::Packet {
+                                    sender: packet_sender,
+                                } => {
+                                    packet_senders.lock().await.insert(info.id, packet_sender);
+                                }
+                            }
 
                             if let Err(err) = result_sender.send(statistic_sender.clone()) {
                                 log::error!(
@@ -296,7 +409,14 @@ impl StreamDataTransceiver {
                             statistics_data.subscriber_count += 1;
                         }
                         TransceiverEvent::UnSubscribe { info } => {
-                            media_senders.lock().await.remove(&info.id);
+                            match info.sub_type {
+                                SubscribeType::RtpPull | SubscribeType::WhepPull => {
+                                    packet_senders.lock().await.remove(&info.id);
+                                }
+                                _ => {
+                                    frame_senders.lock().await.remove(&info.id);
+                                }
+                            }
                             let mut statistics_data = statistics_data.lock().await;
                             let subscribers = &mut statistics_data.subscribers;
                             subscribers.remove(&info.id);
@@ -334,12 +454,23 @@ impl StreamDataTransceiver {
     pub async fn run(self) -> Result<(), StreamHubError> {
         let (tx, _) = broadcast::channel::<()>(1);
 
-        Self::receive_media_packet_loop(
-            tx.subscribe(),
-            self.media_receiver,
-            self.id_to_media_sender.clone(),
-        )
-        .await;
+        if let Some(receiver) = self.data_receiver.frame_receiver {
+            Self::receive_frame_data_loop(
+                tx.subscribe(),
+                receiver,
+                self.id_to_frame_sender.clone(),
+            )
+            .await;
+        }
+
+        if let Some(receiver) = self.data_receiver.packet_receiver {
+            Self::receive_packet_data_loop(
+                tx.subscribe(),
+                receiver,
+                self.id_to_packet_sender.clone(),
+            )
+            .await;
+        }
 
         Self::receive_statistics_data_loop(
             tx.subscribe(),
@@ -353,7 +484,8 @@ impl StreamDataTransceiver {
             self.stream_handler,
             tx,
             self.event_receiver,
-            self.id_to_media_sender,
+            self.id_to_packet_sender,
+            self.id_to_frame_sender,
             self.statistic_data_sender,
             self.statistic_data.clone(),
         )
@@ -447,7 +579,45 @@ impl StreamsHub {
                     result_sender,
                     stream_handler,
                 } => {
-                    let (sender, receiver) = mpsc::unbounded_channel();
+                    let (frame_sender, packet_sender, receiver) = match info.pub_data_type {
+                        define::PubDataType::Frame => {
+                            let (sender_chan, receiver_chan) = mpsc::unbounded_channel();
+                            (
+                                Some(sender_chan),
+                                None,
+                                DataReceiver {
+                                    frame_receiver: Some(receiver_chan),
+                                    packet_receiver: None,
+                                },
+                            )
+                        }
+                        define::PubDataType::Packet => {
+                            let (sender_chan, receiver_chan) = mpsc::unbounded_channel();
+                            (
+                                None,
+                                Some(sender_chan),
+                                DataReceiver {
+                                    frame_receiver: None,
+                                    packet_receiver: Some(receiver_chan),
+                                },
+                            )
+                        }
+                        define::PubDataType::Both => {
+                            let (sender_frame_chan, receiver_frame_chan) =
+                                mpsc::unbounded_channel();
+                            let (sender_packet_chan, receiver_packet_chan) =
+                                mpsc::unbounded_channel();
+
+                            (
+                                Some(sender_frame_chan),
+                                Some(sender_packet_chan),
+                                DataReceiver {
+                                    frame_receiver: Some(receiver_frame_chan),
+                                    packet_receiver: Some(receiver_packet_chan),
+                                },
+                            )
+                        }
+                    };
 
                     let result = match self
                         .publish(identifier.clone(), receiver, stream_handler)
@@ -459,7 +629,8 @@ impl StreamsHub {
                             }
                             self.un_pub_sub_events
                                 .insert(info.id, StreamHubEvent::UnPublish { identifier, info });
-                            Ok((Some(sender), Some(statistic_data_sender)))
+
+                            Ok((frame_sender, packet_sender, Some(statistic_data_sender)))
                         }
                         Err(err) => {
                             log::error!("event_loop Publish err: {}", err);
@@ -496,8 +667,33 @@ impl StreamsHub {
                     let sub_id = info.id;
                     let info_clone = info.clone();
 
-                    //new chan for media sender and receiver
-                    let (sender, receiver) = mpsc::unbounded_channel();
+                    //new chan for Frame/Packet sender and receiver
+                    let (sender, receiver) = match info.sub_data_type {
+                        define::SubDataType::Frame => {
+                            let (sender_chan, receiver_chan) = mpsc::unbounded_channel();
+                            (
+                                DataSender::Frame {
+                                    sender: sender_chan,
+                                },
+                                DataReceiver {
+                                    frame_receiver: Some(receiver_chan),
+                                    packet_receiver: None,
+                                },
+                            )
+                        }
+                        define::SubDataType::Packet => {
+                            let (sender_chan, receiver_chan) = mpsc::unbounded_channel();
+                            (
+                                DataSender::Packet {
+                                    sender: sender_chan,
+                                },
+                                DataReceiver {
+                                    frame_receiver: None,
+                                    packet_receiver: Some(receiver_chan),
+                                },
+                            )
+                        }
+                    };
 
                     let rv = match self.subscribe(&identifier, info_clone, sender).await {
                         Ok(statistic_data_sender) => {
@@ -769,7 +965,7 @@ impl StreamsHub {
         &mut self,
         identifer: &StreamIdentifier,
         sub_info: SubscriberInfo,
-        sender: MediaPacketSender,
+        sender: DataSender,
     ) -> Result<StatisticDataSender, StreamHubError> {
         if let Some(event_sender) = self.streams.get_mut(identifer) {
             let (result_sender, result_receiver) = oneshot::channel();
@@ -837,7 +1033,7 @@ impl StreamsHub {
     pub async fn publish(
         &mut self,
         identifier: StreamIdentifier,
-        receiver: MediaPacketReceiver,
+        receiver: DataReceiver,
         handler: Arc<dyn TStreamHandler>,
     ) -> Result<StatisticDataSender, StreamHubError> {
         if self.streams.get(&identifier).is_some() {

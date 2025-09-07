@@ -1,0 +1,8 @@
+[package]
+name = "mpegts-proto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytes = "1.0.0"
+streamhub = { path = "../../library/streamhub/" }

@@ -1,6 +1,5 @@
 use crate::config::{AuthConfig, AuthSecretConfig};
 use commonlib::auth::AuthType;
-use rtmp::remuxer::RtmpRemuxer;
 use std::sync::Arc;
 use xrtsp::relay::pull_client_manager::RtspPullClientManager;
 
@@ -86,7 +85,6 @@ impl Service {
         self.start_rtsp(&mut stream_hub).await?;
         self.start_webrtc(&mut stream_hub).await?;
         self.start_http_api_server(&mut stream_hub).await?;
-        self.start_rtmp_remuxer(&mut stream_hub).await?;
 
         tokio::spawn(async move {
             stream_hub.run().await;
@@ -190,49 +188,6 @@ impl Service {
             });
         }
 
-        Ok(())
-    }
-
-    async fn start_rtmp_remuxer(&mut self, stream_hub: &mut StreamsHub) -> Result<()> {
-        //The remuxer now is used for rtsp2rtmp/whip2rtmp, so both rtsp(or whip)/rtmp cfg need to be enabled.
-        let mut rtsp_enabled = false;
-        if let Some(rtsp_cfg_value) = &self.cfg.rtsp {
-            if rtsp_cfg_value.enabled {
-                rtsp_enabled = true;
-            }
-        }
-
-        let mut whip_enabled = false;
-        if let Some(whip_cfg_value) = &self.cfg.webrtc {
-            if whip_cfg_value.enabled {
-                whip_enabled = true;
-            }
-        }
-
-        if !rtsp_enabled && !whip_enabled {
-            return Ok(());
-        }
-
-        let mut rtmp_enabled: bool = false;
-        if let Some(rtmp_cfg_value) = &self.cfg.rtmp {
-            if rtmp_cfg_value.enabled {
-                rtmp_enabled = true;
-            }
-        }
-        if !rtmp_enabled {
-            return Ok(());
-        }
-
-        let event_producer = stream_hub.get_hub_event_sender();
-        let broadcast_event_receiver = stream_hub.get_client_event_consumer();
-        let mut remuxer = RtmpRemuxer::new(broadcast_event_receiver, event_producer);
-        stream_hub.set_rtmp_remuxer_enabled(true);
-
-        tokio::spawn(async move {
-            if let Err(err) = remuxer.run().await {
-                log::error!("rtmp remuxer server error: {}", err);
-            }
-        });
         Ok(())
     }
 

@@ -126,12 +126,9 @@ pub enum VideoCodecType {
 
 #[derive(Clone)]
 pub struct MediaInfo {
-    pub audio_codec: Option<SoundFormat>,
-    pub audio_sample_rate: Option<u32>,
-    pub audio_channels: Option<u16>,
-    pub video_codec: Option<VideoCodecType>,
-    pub video_width: Option<u32>,
-    pub video_height: Option<u32>,
+    pub audio_clock_rate: u32,
+    pub video_clock_rate: u32,
+    pub vcodec: VideoCodecType,
 }
 
 #[derive(Clone)]
@@ -145,12 +142,30 @@ pub struct MediaPacket {
     pub payload: BytesMut,
 }
 
+#[derive(Clone)]
+pub enum FrameData {
+    Video { timestamp: u32, data: BytesMut },
+    Audio { timestamp: u32, data: BytesMut },
+    MetaData { timestamp: u32, data: BytesMut },
+    MediaInfo { media_info: MediaInfo },
+}
+
+#[derive(Clone)]
+pub enum PacketData {
+    Video { timestamp: u32, data: BytesMut },
+    Audio { timestamp: u32, data: BytesMut },
+}
+
 //used to save data which needs to be transferred between client/server sessions
 #[derive(Clone)]
 pub enum Information {
     Sdp { data: String },
-    MediaInfo { media_info: MediaInfo },
 }
+
+pub type FrameDataSender = mpsc::UnboundedSender<FrameData>;
+pub type FrameDataReceiver = mpsc::UnboundedReceiver<FrameData>;
+pub type PacketDataSender = mpsc::UnboundedSender<PacketData>;
+pub type PacketDataReceiver = mpsc::UnboundedReceiver<PacketData>;
 
 //used to transfer media data between different protocols or send data from publisher to subscribers
 pub type MediaPacketSender = mpsc::UnboundedSender<MediaPacket>;
@@ -178,9 +193,17 @@ pub type StatisticApiResultSender = oneshot::Sender<Value>;
 pub type StatisticApiResultReceiver = oneshot::Receiver<Value>;
 
 pub type SubEventExecuteResultSender =
-    oneshot::Sender<Result<(MediaPacketReceiver, Option<StatisticDataSender>), StreamHubError>>;
-pub type PubEventExecuteResultSender =
-    oneshot::Sender<Result<(Option<MediaPacketSender>, Option<StatisticDataSender>), StreamHubError>>;
+    oneshot::Sender<Result<(DataReceiver, Option<StatisticDataSender>), StreamHubError>>;
+pub type PubEventExecuteResultSender = oneshot::Sender<
+    Result<
+        (
+            Option<FrameDataSender>,
+            Option<PacketDataSender>,
+            Option<StatisticDataSender>,
+        ),
+        StreamHubError,
+    >,
+>;
 // The trait bound `BroadcastEvent: Clone` should be satisfied, so here we cannot use oneshot.
 pub type BroadcastEventExecuteResultSender = mpsc::Sender<Result<(), StreamHubError>>;
 pub type ApiRelayStreamResultSender = oneshot::Sender<Result<(), StreamHubError>>;
@@ -190,16 +213,23 @@ pub type TransceiverEventExecuteResultSender = oneshot::Sender<StatisticDataSend
 pub trait TStreamHandler: Send + Sync {
     async fn send_prior_data(
         &self,
-        sender: MediaPacketSender,
+        sender: DataSender,
         sub_type: SubscribeType,
     ) -> Result<(), StreamHubError>;
     async fn get_statistic_data(&self) -> Option<StatisticsStream>;
     async fn send_information(&self, sender: InformationSender);
 }
 
-//Alias for backward compatibility
-pub type DataReceiver = MediaPacketReceiver;
-pub type DataSender = MediaPacketSender;
+pub struct DataReceiver {
+    pub frame_receiver: Option<FrameDataReceiver>,
+    pub packet_receiver: Option<PacketDataReceiver>,
+}
+
+#[derive(Debug, Clone)]
+pub enum DataSender {
+    Frame { sender: FrameDataSender },
+    Packet { sender: PacketDataSender },
+}
 //we can only sub one kind of stream.
 #[derive(Debug, Clone, Serialize)]
 pub enum SubDataType {

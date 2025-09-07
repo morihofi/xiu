@@ -47,8 +47,8 @@ use bytesio::bytesio::TNetIO;
 use bytesio::bytesio::TcpIO;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use commonlib::auth::Auth;
@@ -206,9 +206,23 @@ impl RtspServerSession {
         let rtsp_request: RtspRequest;
         let mut retry_count = 0;
         loop {
-            // TODO(all) : shoud check if have '\r\n\r\n' firstly.
             let data = self.reader.get_remaining_bytes();
-            if let Some(rtsp_request_data) = RtspRequest::unmarshal(std::str::from_utf8(&data)?) {
+            let data_slice = &data[..];
+            if !data_slice.windows(4).any(|w| w == b"\r\n\r\n") {
+                if retry_count >= 5 {
+                    return Err(SessionError {
+                        value: SessionErrorValue::RtspHeaderNotComplete,
+                    });
+                }
+                retry_count += 1;
+                let data_recv = self.io.lock().await.read().await?;
+                self.reader.extend_from_slice(&data_recv[..]);
+                continue;
+            }
+            if let Some(rtsp_request_data) =
+                RtspRequest::unmarshal(std::str::from_utf8(data_slice)?)
+            {
+                retry_count = 0;
                 // TCP packet sticking issue, if have content_length in header.
                 // should check the body
                 if let Some(content_length) =
@@ -221,7 +235,7 @@ impl RtspServerSession {
                             if retry_count >= 5 {
                                 log::error!(
                                     "corrupted rtsp message={}",
-                                    std::str::from_utf8(&data)?
+                                    std::str::from_utf8(data_slice)?
                                 );
                                 return Ok(());
                             }
@@ -235,7 +249,10 @@ impl RtspServerSession {
                 rtsp_request = rtsp_request_data;
                 self.reader.extract_remaining_bytes();
             } else {
-                log::error!("corrupted rtsp message={}", std::str::from_utf8(&data)?);
+                log::error!(
+                    "corrupted rtsp message={}",
+                    std::str::from_utf8(data_slice)?
+                );
                 return Ok(());
             }
             break;
@@ -913,5 +930,101 @@ impl TStreamHandler for RtspStreamHandler {
         }) {
             log::error!("send_information of rtsp error: {}", err);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use bytes::Bytes;
+    use bytes::BytesMut;
+    use bytesio::bytesio::{NetType, TNetIO};
+    use bytesio::bytesio_errors::{BytesIOError, BytesIOErrorValue};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Mutex;
+
+    struct MockIO {
+        reads: Vec<BytesMut>,
+        idx: usize,
+        writes: Vec<Bytes>,
+    }
+
+    impl MockIO {
+        fn new(reads: Vec<BytesMut>) -> Self {
+            Self {
+                reads,
+                idx: 0,
+                writes: Vec::new(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl TNetIO for MockIO {
+        async fn write(&mut self, bytes: Bytes) -> Result<(), BytesIOError> {
+            self.writes.push(bytes);
+            Ok(())
+        }
+
+        async fn read(&mut self) -> Result<BytesMut, BytesIOError> {
+            if self.idx < self.reads.len() {
+                let data = self.reads[self.idx].clone();
+                self.idx += 1;
+                Ok(data)
+            } else {
+                Err(BytesIOError {
+                    value: BytesIOErrorValue::NoneReturn,
+                })
+            }
+        }
+
+        async fn read_timeout(&mut self, _duration: Duration) -> Result<BytesMut, BytesIOError> {
+            self.read().await
+        }
+
+        fn get_net_type(&self) -> NetType {
+            NetType::TCP
+        }
+    }
+
+    fn build_session(mock: MockIO) -> RtspServerSession {
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> = Arc::new(Mutex::new(Box::new(mock)));
+        let writer = AsyncBytesWriter::new(io.clone());
+        let (event_sender, _event_receiver) = mpsc::unbounded_channel();
+        RtspServerSession {
+            io,
+            reader: BytesReader::new(BytesMut::new()),
+            writer,
+            tracks: HashMap::new(),
+            sdp: Sdp::default(),
+            session_id: None,
+            session_type: define::ServerSessionType::Push,
+            stream_handler: Arc::new(RtspStreamHandler::new()),
+            event_producer: event_sender,
+            auth: None,
+            stream_identifier: None,
+            is_normal_exit: false,
+            remote_addr: "127.0.0.1:0".parse().unwrap(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_complete_rtsp_header() {
+        let req =
+            BytesMut::from(b"OPTIONS rtsp://example.com RTSP/1.0\r\nCSeq: 1\r\n\r\n".as_ref());
+        let mock = MockIO::new(vec![req]);
+        let mut session = build_session(mock);
+        assert!(session.on_rtsp_message().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_fragmented_rtsp_header() {
+        let part1 = BytesMut::from(b"OPTIONS rtsp://example.com RTSP/1.0\r\nCSeq: 1".as_ref());
+        let part2 = BytesMut::from(b"\r\n\r\n".as_ref());
+        let mock = MockIO::new(vec![part1, part2]);
+        let mut session = build_session(mock);
+        assert!(session.on_rtsp_message().await.is_ok());
     }
 }

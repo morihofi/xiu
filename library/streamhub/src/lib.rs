@@ -410,7 +410,9 @@ impl StreamDataTransceiver {
                         }
                         TransceiverEvent::UnSubscribe { info } => {
                             match info.sub_type {
-                                SubscribeType::RtpPull | SubscribeType::WhepPull => {
+                                SubscribeType::RtpPull
+                                | SubscribeType::RtspPull
+                                | SubscribeType::WhepPull => {
                                     packet_senders.lock().await.remove(&info.id);
                                 }
                                 _ => {

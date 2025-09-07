@@ -26,3 +26,4 @@ pub mod adapter;
 pub mod writer;
 pub mod user_control_messages;
 pub mod utils;
+pub mod remuxer;

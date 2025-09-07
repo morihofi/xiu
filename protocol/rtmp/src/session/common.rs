@@ -26,8 +26,8 @@ use {
     streamhub::{
         define::{
             FrameData, FrameDataReceiver, FrameDataSender, Information, InformationSender,
-            NotifyInfo, PublishType, PublisherInfo, StreamHubEvent, StreamHubEventSender,
-            SubscribeType, SubscriberInfo, TStreamHandler,
+            NotifyInfo, PacketData, PacketDataSender, PublishType, PublisherInfo,
+            StreamHubEvent, StreamHubEventSender, SubscribeType, SubscriberInfo, TStreamHandler,
         },
         errors::{StreamHubError, StreamHubErrorValue},
         statistics::StatisticsStream,
@@ -54,6 +54,7 @@ pub struct Common {
 
     data_receiver: FrameDataReceiver,
     data_sender: FrameDataSender,
+    packet_sender: Option<PacketDataSender>,
 
     event_producer: StreamHubEventSender,
     pub session_type: SessionType,
@@ -82,6 +83,7 @@ impl Common {
             packetizer,
 
             data_sender: init_producer,
+            packet_sender: None,
             data_receiver: init_consumer,
 
             event_producer,
@@ -230,9 +232,16 @@ impl Common {
             }
         }
 
-        self.stream_handler
-            .save_video_data(data, *timestamp)
-            .await?;
+        if let Some(sender) = &self.packet_sender {
+            if let Some(payload) = crate::remuxer::remux_h264(data) {
+                let _ = sender.send(PacketData::Video {
+                    timestamp: *timestamp,
+                    data: payload,
+                });
+            }
+        }
+
+        self.stream_handler.save_video_data(data, *timestamp).await?;
 
         Ok(())
     }
@@ -257,9 +266,16 @@ impl Common {
             }
         }
 
-        self.stream_handler
-            .save_audio_data(data, *timestamp)
-            .await?;
+        if let Some(sender) = &self.packet_sender {
+            if let Some(payload) = crate::remuxer::remux_aac(data) {
+                let _ = sender.send(PacketData::Audio {
+                    timestamp: *timestamp,
+                    data: payload,
+                });
+            }
+        }
+
+        self.stream_handler.save_audio_data(data, *timestamp).await?;
 
         Ok(())
     }
@@ -328,7 +344,7 @@ impl Common {
         PublisherInfo {
             id: self.session_id,
             pub_type,
-            pub_data_type: streamhub::define::PubDataType::Frame,
+            pub_data_type: streamhub::define::PubDataType::Both,
             notify_info: NotifyInfo {
                 request_url: self.request_url.clone(),
                 remote_addr,
@@ -441,6 +457,7 @@ impl Common {
 
         let result = event_result_receiver.await??;
         self.data_sender = result.0.unwrap();
+        self.packet_sender = result.1;
 
         let statistic_data_sender: Option<StatisticDataSender> = result.2;
 
@@ -559,49 +576,77 @@ impl TStreamHandler for RtmpStreamHandler {
         data_sender: DataSender,
         sub_type: SubscribeType,
     ) -> Result<(), StreamHubError> {
-        let sender = match data_sender {
-            DataSender::Frame { sender } => sender,
-            DataSender::Packet { sender: _ } => {
-                return Err(StreamHubError {
-                    value: StreamHubErrorValue::NotCorrectDataSenderType,
-                });
-            }
+        let cache_lock = self.cache.lock().await;
+        let Some(cache) = cache_lock.as_ref() else {
+            return Ok(());
         };
-        if let Some(cache) = &mut *self.cache.lock().await {
-            if let Some(meta_body_data) = cache.get_metadata() {
-                log::info!("send_prior_data: meta_body_data: ");
-                sender.send(meta_body_data).map_err(|_| StreamHubError {
-                    value: StreamHubErrorValue::SendError,
-                })?;
+
+        match data_sender {
+            DataSender::Frame { sender } => {
+                if let Some(meta_body_data) = cache.get_metadata() {
+                    log::info!("send_prior_data: meta_body_data: ");
+                    sender
+                        .send(meta_body_data)
+                        .map_err(|_| StreamHubError { value: StreamHubErrorValue::SendError })?;
+                }
+                if let Some(audio_seq_data) = cache.get_audio_seq() {
+                    log::info!("send_prior_data: audio_seq_data: ",);
+                    sender
+                        .send(audio_seq_data)
+                        .map_err(|_| StreamHubError { value: StreamHubErrorValue::SendError })?;
+                }
+                if let Some(video_seq_data) = cache.get_video_seq() {
+                    log::info!("send_prior_data: video_seq_data:");
+                    sender
+                        .send(video_seq_data)
+                        .map_err(|_| StreamHubError { value: StreamHubErrorValue::SendError })?;
+                }
+                match sub_type {
+                    SubscribeType::RtmpPull
+                    | SubscribeType::RtspPull
+                    | SubscribeType::RtmpRemux2HttpFlv
+                    | SubscribeType::RtmpRemux2Hls => {
+                        if let Some(gops_data) = cache.get_gops_data() {
+                            for gop in gops_data {
+                                for channel_data in gop.get_frame_data() {
+                                    sender
+                                        .send(channel_data)
+                                        .map_err(|_| StreamHubError {
+                                            value: StreamHubErrorValue::SendError,
+                                        })?;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
-            if let Some(audio_seq_data) = cache.get_audio_seq() {
-                log::info!("send_prior_data: audio_seq_data: ",);
-                sender.send(audio_seq_data).map_err(|_| StreamHubError {
-                    value: StreamHubErrorValue::SendError,
-                })?;
-            }
-            if let Some(video_seq_data) = cache.get_video_seq() {
-                log::info!("send_prior_data: video_seq_data:");
-                sender.send(video_seq_data).map_err(|_| StreamHubError {
-                    value: StreamHubErrorValue::SendError,
-                })?;
-            }
-            match sub_type {
-                SubscribeType::RtmpPull
-                | SubscribeType::RtspPull
-                | SubscribeType::RtmpRemux2HttpFlv
-                | SubscribeType::RtmpRemux2Hls => {
-                    if let Some(gops_data) = cache.get_gops_data() {
-                        for gop in gops_data {
-                            for channel_data in gop.get_frame_data() {
-                                sender.send(channel_data).map_err(|_| StreamHubError {
-                                    value: StreamHubErrorValue::SendError,
-                                })?;
+            DataSender::Packet { sender } => {
+                if let Some(gops_data) = cache.get_gops_data() {
+                    for gop in gops_data {
+                        for frame in gop.get_frame_data() {
+                            match frame {
+                                FrameData::Audio { timestamp, data } => {
+                                    if let Some(payload) = crate::remuxer::remux_aac(&data) {
+                                        let _ = sender.send(PacketData::Audio {
+                                            timestamp,
+                                            data: payload,
+                                        });
+                                    }
+                                }
+                                FrameData::Video { timestamp, data } => {
+                                    if let Some(payload) = crate::remuxer::remux_h264(&data) {
+                                        let _ = sender.send(PacketData::Video {
+                                            timestamp,
+                                            data: payload,
+                                        });
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                     }
                 }
-                _ => {}
             }
         }
 
@@ -766,5 +811,44 @@ impl TStreamHandler for RtmpStreamHandler {
 impl fmt::Debug for Common {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(fmt, "S2 {{ member: {:?} }}", self.request_url)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::BytesMut;
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn test_send_prior_packet_data() {
+        let handler = RtmpStreamHandler::new();
+        handler.set_cache(Cache::new(1, None)).await;
+        {
+            let mut cache_lock = handler.cache.lock().await;
+            let cache = cache_lock.as_mut().unwrap();
+            let audio = BytesMut::from(&[0xAF, 0x01, 0x11, 0x22][..]);
+            cache.save_audio_data(&audio, 0).await.unwrap();
+            let mut video = BytesMut::new();
+            video.extend_from_slice(&[0x17, 0x01, 0x00, 0x00, 0x00]);
+            video.extend_from_slice(&[0x00, 0x00, 0x00, 0x04]);
+            video.extend_from_slice(&[0x65, 0x88, 0x84, 0x21]);
+            cache.save_video_data(&video, 0).await.unwrap();
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        handler
+            .send_prior_data(DataSender::Packet { sender: tx }, SubscribeType::RtspPull)
+            .await
+            .unwrap();
+
+        let mut received = 0;
+        while let Ok(pkt) = rx.try_recv() {
+            match pkt {
+                PacketData::Audio { .. } | PacketData::Video { .. } => received += 1,
+            }
+        }
+
+        assert!(received > 0);
     }
 }

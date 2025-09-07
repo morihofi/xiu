@@ -738,6 +738,8 @@ impl RtspServerSession {
             stream_name: key.stream_name.clone(),
         };
 
+        // Emit the proper shutdown event based on session type to ensure
+        // pull sessions unsubscribe instead of unpublishing.
         let event = match self.session_type {
             define::ServerSessionType::Pull => StreamHubEvent::UnSubscribe {
                 identifier,

@@ -9,13 +9,13 @@ use xflv::define::aac_packet_type;
 
 use crate::define::PacketData;
 
+pub mod adapter;
 pub mod define;
 pub mod errors;
 pub mod notify;
 pub mod statistics;
 pub mod stream;
 pub mod utils;
-pub mod adapter;
 
 pub use adapter::ProtocolAdapter;
 
@@ -621,7 +621,10 @@ impl StreamsHub {
 
                     let result = match identifier.to_key() {
                         Some(key) => {
-                            match self.publish(key.clone(), identifier.clone(), receiver, stream_handler).await {
+                            match self
+                                .publish(key.clone(), identifier.clone(), receiver, stream_handler)
+                                .await
+                            {
                                 Ok(statistic_data_sender) => {
                                     if let Some(notifier) = &self.notifier {
                                         notifier.on_publish_notify(&message).await;
@@ -704,25 +707,23 @@ impl StreamsHub {
                     };
 
                     let rv = match identifier.to_key() {
-                        Some(key) => {
-                            match self.subscribe(&key, info_clone, sender).await {
-                                Ok(statistic_data_sender) => {
-                                    if let Some(notifier) = &self.notifier {
-                                        notifier.on_play_notify(&message).await;
-                                    }
+                        Some(key) => match self.subscribe(&key, info_clone, sender).await {
+                            Ok(statistic_data_sender) => {
+                                if let Some(notifier) = &self.notifier {
+                                    notifier.on_play_notify(&message).await;
+                                }
 
-                                    self.un_pub_sub_events.insert(
-                                        sub_id,
-                                        StreamHubEvent::UnSubscribe { identifier, info },
-                                    );
-                                    Ok((receiver, Some(statistic_data_sender)))
-                                }
-                                Err(err) => {
-                                    log::error!("event_loop Subscribe error: {}", err);
-                                    Err(err)
-                                }
+                                self.un_pub_sub_events.insert(
+                                    sub_id,
+                                    StreamHubEvent::UnSubscribe { identifier, info },
+                                );
+                                Ok((receiver, Some(statistic_data_sender)))
                             }
-                        }
+                            Err(err) => {
+                                log::error!("event_loop Subscribe error: {}", err);
+                                Err(err)
+                            }
+                        },
                         None => Err(StreamHubError {
                             value: StreamHubErrorValue::NoAppOrStreamName,
                         }),
@@ -1124,9 +1125,8 @@ impl StreamsHub {
                 log::info!("unpublish remove stream, stream key: {:?}", key);
             }
             None => {
-                return Err(StreamHubError {
-                    value: StreamHubErrorValue::NoAppName,
-                });
+                log::debug!("unpublish called but stream not found: {:?}", key);
+                return Ok(());
             }
         }
 

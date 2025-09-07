@@ -469,7 +469,9 @@ impl RtspClientSession {
                                     "corrupted rtsp message={}",
                                     std::str::from_utf8(&data)?
                                 );
-                                return Ok(());
+                                return Err(SessionError {
+                                    value: SessionErrorValue::RtspHeaderNotComplete,
+                                });
                             }
                             retry_count += 1;
                             let data_recv = self.io.lock().await.read().await?;
@@ -483,7 +485,9 @@ impl RtspClientSession {
                 break;
             } else {
                 log::error!("corrupted rtsp message={}", std::str::from_utf8(&data)?);
-                return Ok(());
+                return Err(SessionError {
+                    value: SessionErrorValue::RtspHeaderNotComplete,
+                });
             }
         }
 
@@ -593,7 +597,9 @@ impl RtspClientSession {
         let rv = self.event_producer.send(event);
         match rv {
             Err(err) => {
-                log::error!("session exit: send event error: {err} for event: {event_json_str}");
+                log::error!(
+                    "session exit: send event error: {err} for event: {event_json_str}"
+                );
                 Err(SessionError {
                     value: SessionErrorValue::StreamHubEventSendErr,
                 })
@@ -602,6 +608,111 @@ impl RtspClientSession {
                 log::info!("session exit: send event success: {event_json_str}");
                 Ok(())
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use bytes::Bytes;
+    use bytes::BytesMut;
+    use bytesio::bytesio::{NetType, TNetIO};
+    use bytesio::bytesio_errors::{BytesIOError, BytesIOErrorValue};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::{mpsc, Mutex};
+
+    struct MockIO {
+        reads: Vec<BytesMut>,
+        idx: usize,
+        writes: Vec<Bytes>,
+    }
+
+    impl MockIO {
+        fn new(reads: Vec<BytesMut>) -> Self {
+            Self {
+                reads,
+                idx: 0,
+                writes: Vec::new(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl TNetIO for MockIO {
+        async fn write(&mut self, bytes: Bytes) -> Result<(), BytesIOError> {
+            self.writes.push(bytes);
+            Ok(())
+        }
+
+        async fn read(&mut self) -> Result<BytesMut, BytesIOError> {
+            if self.idx < self.reads.len() {
+                let data = self.reads[self.idx].clone();
+                self.idx += 1;
+                Ok(data)
+            } else {
+                Err(BytesIOError {
+                    value: BytesIOErrorValue::NoneReturn,
+                })
+            }
+        }
+
+        async fn read_timeout(
+            &mut self,
+            _duration: Duration,
+        ) -> Result<BytesMut, BytesIOError> {
+            self.read().await
+        }
+
+        fn get_net_type(&self) -> NetType {
+            NetType::TCP
+        }
+    }
+
+    fn build_session(mock: MockIO) -> RtspClientSession {
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> =
+            Arc::new(Mutex::new(Box::new(mock)));
+        let writer = AsyncBytesWriter::new(io.clone());
+        let (event_sender, _event_receiver) = mpsc::unbounded_channel();
+        RtspClientSession {
+            address: "127.0.0.1:554".to_string(),
+            stream_name: "test".to_string(),
+            io,
+            reader: BytesReader::new(BytesMut::new()),
+            writer,
+            protocol_type: ProtocolType::TCP,
+            tracks: HashMap::new(),
+            sdp: Sdp::default(),
+            session_id: None,
+            client_type: ClientSessionType::Pull,
+            cseq: 1,
+            stream_handler: Arc::new(RtspStreamHandler::new()),
+            event_producer: event_sender,
+            is_running: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_corrupted_rtsp_response() {
+        let resp = BytesMut::from(
+            b"RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 4\r\n\r\nab".as_ref(),
+        );
+        let mut reads = vec![resp];
+        for _ in 0..5 {
+            reads.push(BytesMut::new());
+        }
+        let mock = MockIO::new(reads);
+        let mut session = build_session(mock);
+        let err = session
+            .receive_response(rtsp_method_name::OPTIONS)
+            .await
+            .unwrap_err();
+        if let SessionErrorValue::RtspHeaderNotComplete = err.value {
+            // expected
+        } else {
+            panic!("unexpected error {:?}", err);
         }
     }
 }

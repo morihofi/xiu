@@ -237,7 +237,9 @@ impl RtspServerSession {
                                     "corrupted rtsp message={}",
                                     std::str::from_utf8(data_slice)?
                                 );
-                                return Ok(());
+                                return Err(SessionError {
+                                    value: SessionErrorValue::RtspHeaderNotComplete,
+                                });
                             }
                             retry_count += 1;
                             let data_recv = self.io.lock().await.read().await?;
@@ -253,7 +255,9 @@ impl RtspServerSession {
                     "corrupted rtsp message={}",
                     std::str::from_utf8(data_slice)?
                 );
-                return Ok(());
+                return Err(SessionError {
+                    value: SessionErrorValue::RtspHeaderNotComplete,
+                });
             }
             break;
         }
@@ -1012,8 +1016,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_complete_rtsp_header() {
-        let req =
-            BytesMut::from(b"OPTIONS rtsp://example.com RTSP/1.0\r\nCSeq: 1\r\n\r\n".as_ref());
+        let req = BytesMut::from(
+            b"OPTIONS rtsp://example.com/stream RTSP/1.0\r\nCSeq: 1\r\n\r\n".as_ref(),
+        );
         let mock = MockIO::new(vec![req]);
         let mut session = build_session(mock);
         assert!(session.on_rtsp_message().await.is_ok());
@@ -1021,10 +1026,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_fragmented_rtsp_header() {
-        let part1 = BytesMut::from(b"OPTIONS rtsp://example.com RTSP/1.0\r\nCSeq: 1".as_ref());
+        let part1 = BytesMut::from(
+            b"OPTIONS rtsp://example.com/stream RTSP/1.0\r\nCSeq: 1".as_ref(),
+        );
         let part2 = BytesMut::from(b"\r\n\r\n".as_ref());
         let mock = MockIO::new(vec![part1, part2]);
         let mut session = build_session(mock);
         assert!(session.on_rtsp_message().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_corrupted_rtsp_message() {
+        let req = BytesMut::from(
+            b"OPTIONS rtsp://example.com RTSP/1.0\r\nCSeq: 1\r\n\r\n".as_ref(),
+        );
+        let mock = MockIO::new(vec![req]);
+        let mut session = build_session(mock);
+        let err = session.on_rtsp_message().await.unwrap_err();
+        if let SessionErrorValue::RtspHeaderNotComplete = err.value {
+            // expected
+        } else {
+            panic!("unexpected error {:?}", err);
+        }
     }
 }

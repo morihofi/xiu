@@ -126,24 +126,23 @@ pub enum VideoCodecType {
 
 #[derive(Clone)]
 pub struct MediaInfo {
-    pub audio_clock_rate: u32,
-    pub video_clock_rate: u32,
-    pub vcodec: VideoCodecType,
+    pub audio_codec: Option<SoundFormat>,
+    pub audio_sample_rate: Option<u32>,
+    pub audio_channels: Option<u16>,
+    pub video_codec: Option<VideoCodecType>,
+    pub video_width: Option<u32>,
+    pub video_height: Option<u32>,
 }
 
 #[derive(Clone)]
-pub enum FrameData {
-    Video { timestamp: u32, data: BytesMut },
-    Audio { timestamp: u32, data: BytesMut },
-    MetaData { timestamp: u32, data: BytesMut },
-    MediaInfo { media_info: MediaInfo },
-}
-
-//Used to pass rtp raw data.
-#[derive(Clone)]
-pub enum PacketData {
-    Video { timestamp: u32, data: BytesMut },
-    Audio { timestamp: u32, data: BytesMut },
+pub struct MediaPacket {
+    pub stream_id: StreamIdentifier,
+    pub audio_codec: Option<SoundFormat>,
+    pub video_codec: Option<VideoCodecType>,
+    pub pts: u64,
+    pub dts: u64,
+    pub is_keyframe: bool,
+    pub payload: BytesMut,
 }
 
 //used to save data which needs to be transferred between client/server sessions
@@ -152,16 +151,9 @@ pub enum Information {
     Sdp { data: String },
 }
 
-//used to transfer a/v frame between different protocols(rtmp/rtsp/webrtc/http-flv/hls)
-//or send a/v frame data from publisher to subscribers.
-pub type FrameDataSender = mpsc::UnboundedSender<FrameData>;
-pub type FrameDataReceiver = mpsc::UnboundedReceiver<FrameData>;
-
-//used to transfer rtp packet data,it includles the following directions:
-// rtsp(publisher)->stream hub->rtsp(subscriber)
-// webrtc(publisher whip)->stream hub->webrtc(subscriber whep)
-pub type PacketDataSender = mpsc::UnboundedSender<PacketData>;
-pub type PacketDataReceiver = mpsc::UnboundedReceiver<PacketData>;
+//used to transfer media data between different protocols or send data from publisher to subscribers
+pub type MediaPacketSender = mpsc::UnboundedSender<MediaPacket>;
+pub type MediaPacketReceiver = mpsc::UnboundedReceiver<MediaPacket>;
 
 pub type InformationSender = mpsc::UnboundedSender<Information>;
 pub type InformationReceiver = mpsc::UnboundedReceiver<Information>;
@@ -186,16 +178,8 @@ pub type StatisticApiResultReceiver = oneshot::Receiver<Value>;
 
 pub type SubEventExecuteResultSender =
     oneshot::Sender<Result<(DataReceiver, Option<StatisticDataSender>), StreamHubError>>;
-pub type PubEventExecuteResultSender = oneshot::Sender<
-    Result<
-        (
-            Option<FrameDataSender>,
-            Option<PacketDataSender>,
-            Option<StatisticDataSender>,
-        ),
-        StreamHubError,
-    >,
->;
+pub type PubEventExecuteResultSender =
+    oneshot::Sender<Result<(Option<MediaPacketSender>, Option<StatisticDataSender>), StreamHubError>>;
 // The trait bound `BroadcastEvent: Clone` should be satisfied, so here we cannot use oneshot.
 pub type BroadcastEventExecuteResultSender = mpsc::Sender<Result<(), StreamHubError>>;
 pub type ApiRelayStreamResultSender = oneshot::Sender<Result<(), StreamHubError>>;
@@ -205,25 +189,20 @@ pub type TransceiverEventExecuteResultSender = oneshot::Sender<StatisticDataSend
 pub trait TStreamHandler: Send + Sync {
     async fn send_prior_data(
         &self,
-        sender: DataSender,
+        sender: MediaPacketSender,
         sub_type: SubscribeType,
     ) -> Result<(), StreamHubError>;
     async fn get_statistic_data(&self) -> Option<StatisticsStream>;
     async fn send_information(&self, sender: InformationSender);
 }
 
-//A publisher can publish one or two kinds of av stream at a time.
+//A publisher can publish media stream data
 pub struct DataReceiver {
-    pub frame_receiver: Option<FrameDataReceiver>,
-    pub packet_receiver: Option<PacketDataReceiver>,
+    pub media_receiver: Option<MediaPacketReceiver>,
 }
 
-//A subscriber only needs to subscribe to one type of stream at a time
-#[derive(Debug, Clone)]
-pub enum DataSender {
-    Frame { sender: FrameDataSender },
-    Packet { sender: PacketDataSender },
-}
+//Alias for backward compatibility
+pub type DataSender = MediaPacketSender;
 //we can only sub one kind of stream.
 #[derive(Debug, Clone, Serialize)]
 pub enum SubDataType {

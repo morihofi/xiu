@@ -149,6 +149,7 @@ pub struct MediaPacket {
 #[derive(Clone)]
 pub enum Information {
     Sdp { data: String },
+    MediaInfo { media_info: MediaInfo },
 }
 
 //used to transfer media data between different protocols or send data from publisher to subscribers
@@ -177,7 +178,7 @@ pub type StatisticApiResultSender = oneshot::Sender<Value>;
 pub type StatisticApiResultReceiver = oneshot::Receiver<Value>;
 
 pub type SubEventExecuteResultSender =
-    oneshot::Sender<Result<(DataReceiver, Option<StatisticDataSender>), StreamHubError>>;
+    oneshot::Sender<Result<(MediaPacketReceiver, Option<StatisticDataSender>), StreamHubError>>;
 pub type PubEventExecuteResultSender =
     oneshot::Sender<Result<(Option<MediaPacketSender>, Option<StatisticDataSender>), StreamHubError>>;
 // The trait bound `BroadcastEvent: Clone` should be satisfied, so here we cannot use oneshot.
@@ -196,12 +197,8 @@ pub trait TStreamHandler: Send + Sync {
     async fn send_information(&self, sender: InformationSender);
 }
 
-//A publisher can publish media stream data
-pub struct DataReceiver {
-    pub media_receiver: Option<MediaPacketReceiver>,
-}
-
 //Alias for backward compatibility
+pub type DataReceiver = MediaPacketReceiver;
 pub type DataSender = MediaPacketSender;
 //we can only sub one kind of stream.
 #[derive(Debug, Clone, Serialize)]

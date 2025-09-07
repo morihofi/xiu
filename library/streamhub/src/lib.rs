@@ -19,7 +19,7 @@ pub mod utils;
 use {
     crate::notify::Notifier,
     define::{
-        BroadcastEvent, BroadcastEventReceiver, BroadcastEventSender, DataReceiver, DataSender,
+        BroadcastEvent, BroadcastEventReceiver, BroadcastEventSender,
         Information, StreamHubEvent, StreamHubEventReceiver,
         StreamHubEventSender, SubscriberInfo, TStreamHandler, TransceiverEvent,
         TransceiverEventReceiver, TransceiverEventSender,
@@ -35,8 +35,8 @@ use {
 //Receive audio data/video data/meta data/media info from a publisher and send to players/subscribers
 //Receive statistic information from a publisher and send to api callers.
 pub struct StreamDataTransceiver {
-    //used for receiving Audio/Video data from publishers
-    data_receiver: DataReceiver,
+    //used for receiving MediaPacket data from publishers
+    media_receiver: MediaPacketReceiver,
     //used for receiving event
     event_receiver: TransceiverEventReceiver,
     //used for sending media data to players/subscribers
@@ -53,14 +53,14 @@ pub struct StreamDataTransceiver {
 
 impl StreamDataTransceiver {
     fn new(
-        data_receiver: DataReceiver,
+        media_receiver: MediaPacketReceiver,
         event_receiver: UnboundedReceiver<TransceiverEvent>,
         identifier: StreamIdentifier,
         h: Arc<dyn TStreamHandler>,
     ) -> Self {
         let (statistic_data_sender, statistic_data_receiver) = mpsc::unbounded_channel();
         Self {
-            data_receiver,
+            media_receiver,
             event_receiver,
             statistic_data_sender,
             statistic_data_receiver,
@@ -334,14 +334,12 @@ impl StreamDataTransceiver {
     pub async fn run(self) -> Result<(), StreamHubError> {
         let (tx, _) = broadcast::channel::<()>(1);
 
-        if let Some(receiver) = self.data_receiver.media_receiver {
-            Self::receive_media_packet_loop(
-                tx.subscribe(),
-                receiver,
-                self.id_to_media_sender.clone(),
-            )
-            .await;
-        }
+        Self::receive_media_packet_loop(
+            tx.subscribe(),
+            self.media_receiver,
+            self.id_to_media_sender.clone(),
+        )
+        .await;
 
         Self::receive_statistics_data_loop(
             tx.subscribe(),
@@ -449,10 +447,7 @@ impl StreamsHub {
                     result_sender,
                     stream_handler,
                 } => {
-                    let (sender, receiver_chan) = mpsc::unbounded_channel();
-                    let receiver = DataReceiver {
-                        media_receiver: Some(receiver_chan),
-                    };
+                    let (sender, receiver) = mpsc::unbounded_channel();
 
                     let result = match self
                         .publish(identifier.clone(), receiver, stream_handler)
@@ -464,7 +459,6 @@ impl StreamsHub {
                             }
                             self.un_pub_sub_events
                                 .insert(info.id, StreamHubEvent::UnPublish { identifier, info });
-
                             Ok((Some(sender), Some(statistic_data_sender)))
                         }
                         Err(err) => {
@@ -503,10 +497,7 @@ impl StreamsHub {
                     let info_clone = info.clone();
 
                     //new chan for media sender and receiver
-                    let (sender, receiver_chan) = mpsc::unbounded_channel();
-                    let receiver = DataReceiver {
-                        media_receiver: Some(receiver_chan),
-                    };
+                    let (sender, receiver) = mpsc::unbounded_channel();
 
                     let rv = match self.subscribe(&identifier, info_clone, sender).await {
                         Ok(statistic_data_sender) => {
@@ -778,7 +769,7 @@ impl StreamsHub {
         &mut self,
         identifer: &StreamIdentifier,
         sub_info: SubscriberInfo,
-        sender: DataSender,
+        sender: MediaPacketSender,
     ) -> Result<StatisticDataSender, StreamHubError> {
         if let Some(event_sender) = self.streams.get_mut(identifer) {
             let (result_sender, result_receiver) = oneshot::channel();
@@ -846,7 +837,7 @@ impl StreamsHub {
     pub async fn publish(
         &mut self,
         identifier: StreamIdentifier,
-        receiver: DataReceiver,
+        receiver: MediaPacketReceiver,
         handler: Arc<dyn TStreamHandler>,
     ) -> Result<StatisticDataSender, StreamHubError> {
         if self.streams.get(&identifier).is_some() {

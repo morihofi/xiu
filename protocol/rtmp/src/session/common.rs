@@ -517,6 +517,38 @@ impl Common {
         }
         Ok(())
     }
+
+    pub fn unpublish_to_stream_hub_on_drop(&mut self, app_name: String, stream_name: String) {
+        log::info!(
+            "unpublish_to_stream_hub, app_name:{}, stream_name:{}",
+            app_name,
+            stream_name
+        );
+        let unpublish_event = StreamHubEvent::UnPublish {
+            identifier: StreamIdentifier::Rtmp {
+                app_name: app_name.clone(),
+                stream_name: stream_name.clone(),
+            },
+            info: self.get_publisher_info(),
+        };
+
+        match self.event_producer.send(unpublish_event) {
+            Err(_) => {
+                log::error!(
+                    "unpublish_to_stream_hub error.app_name: {}, stream_name: {}",
+                    app_name,
+                    stream_name
+                );
+            }
+            _ => {
+                log::info!(
+                    "unpublish_to_stream_hub successfully.app_name: {}, stream_name: {}",
+                    app_name,
+                    stream_name
+                );
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -682,7 +714,9 @@ impl TStreamHandler for RtmpStreamHandler {
                     define::AvcCodecId::H264 => {
                         let mut avc_processor = Mpeg4AvcProcessor::default();
                         if avc_processor
-                            .decoder_configuration_record_load(&mut BytesReader::new(remain_bytes.clone()))
+                            .decoder_configuration_record_load(&mut BytesReader::new(
+                                remain_bytes.clone(),
+                            ))
                             .is_ok()
                         {
                             if let (Some(sps), Some(pps)) = (
@@ -744,9 +778,21 @@ impl TStreamHandler for RtmpStreamHandler {
                                 };
                                 let b64 = general_purpose::STANDARD.encode(&nal_unit[..]);
                                 match nal_type {
-                                    32 => if vps_b64.is_empty() { vps_b64 = b64; },
-                                    33 => if sps_b64.is_empty() { sps_b64 = b64; },
-                                    34 => if pps_b64.is_empty() { pps_b64 = b64; },
+                                    32 => {
+                                        if vps_b64.is_empty() {
+                                            vps_b64 = b64;
+                                        }
+                                    }
+                                    33 => {
+                                        if sps_b64.is_empty() {
+                                            sps_b64 = b64;
+                                        }
+                                    }
+                                    34 => {
+                                        if pps_b64.is_empty() {
+                                            pps_b64 = b64;
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }

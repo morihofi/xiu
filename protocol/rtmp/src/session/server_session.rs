@@ -196,7 +196,10 @@ impl ServerSession {
                 Err(err) => {
                     if let UnpackErrorValue::CannotParse = err.value {
                         self.common
-                            .unpublish_to_stream_hub(self.app_name.clone(), self.stream_name.clone())
+                            .unpublish_to_stream_hub(
+                                self.app_name.clone(),
+                                self.stream_name.clone(),
+                            )
                             .await?;
                         return Err(err)?;
                     }
@@ -772,5 +775,15 @@ impl ServerSession {
             .await?;
 
         Ok(())
+    }
+}
+
+impl Drop for ServerSession {
+    fn drop(&mut self) {
+        if !self.app_name.is_empty() && !self.stream_name.is_empty() {
+            // Prevent a streamname is locked but no one is sending data because of lost connection
+            // this ensures a safely reconnect
+            self.common.unpublish_to_stream_hub_on_drop(self.app_name.clone(), self.stream_name.clone());
+        }
     }
 }

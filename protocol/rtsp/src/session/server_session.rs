@@ -53,9 +53,9 @@ use tokio::sync::mpsc;
 use commonlib::auth::Auth;
 use streamhub::{
     define::{
-        FrameData, Information, InformationSender, NotifyInfo, PacketData, PublishType,
-        PublisherInfo, StreamHubEvent, StreamHubEventSender, SubscribeType, SubscriberInfo,
-        TStreamHandler,
+        FrameData, Information, InformationSender, MediaPacket, NotifyInfo, PacketData,
+        PublishType, PublisherInfo, StreamHubEvent, StreamHubEventSender, SubscribeType,
+        SubscriberInfo, TStreamHandler,
     },
     errors::{StreamHubError, StreamHubErrorValue},
     statistics::StatisticsStream,
@@ -631,12 +631,16 @@ impl RtspServerSession {
                 match packet_data {
                     PacketData::Audio { timestamp, data } => {
                         if let Some(audio_track) = self.tracks.get_mut(&TrackType::Audio) {
-                            Self::send_packet(audio_track, timestamp, data).await?;
+                            Self::send_packet(audio_track, timestamp, data, false).await?;
                         }
                     }
-                    PacketData::Video { timestamp, data } => {
+                    PacketData::Video {
+                        timestamp,
+                        data,
+                        is_keyframe,
+                    } => {
                         if let Some(video_track) = self.tracks.get_mut(&TrackType::Video) {
-                            Self::send_packet(video_track, timestamp, data).await?;
+                            Self::send_packet(video_track, timestamp, data, is_keyframe).await?;
                         }
                     }
                 }
@@ -658,10 +662,20 @@ impl RtspServerSession {
     async fn send_packet(
         track: &mut RtspTrack,
         timestamp: u32,
-        mut data: BytesMut,
+        data: BytesMut,
+        is_keyframe: bool,
     ) -> Result<(), SessionError> {
         let mut rtp_channel = track.rtp_channel.lock().await;
-        rtp_channel.on_frame(&mut data, timestamp).await?;
+        let mut packet = MediaPacket {
+            stream_id: Default::default(),
+            audio_codec: None,
+            video_codec: None,
+            pts: timestamp as u64,
+            dts: timestamp as u64,
+            is_keyframe,
+            payload: data,
+        };
+        rtp_channel.on_frame(&mut packet.payload, timestamp).await?;
         Ok(())
     }
 

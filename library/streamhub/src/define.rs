@@ -152,7 +152,11 @@ pub enum FrameData {
 
 #[derive(Clone)]
 pub enum PacketData {
-    Video { timestamp: u32, data: BytesMut },
+    Video {
+        timestamp: u32,
+        data: BytesMut,
+        is_keyframe: bool,
+    },
     Audio { timestamp: u32, data: BytesMut },
 }
 

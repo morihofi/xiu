@@ -264,6 +264,7 @@ pub async fn handle_whip(
                         let video_packet = PacketData::Video {
                             timestamp: rtp_packet.header.timestamp,
                             data: BytesMut::from(&b[..n]),
+                            is_keyframe: rtp_packet.header.marker == true,
                         };
                         if let Err(err) = packet_sender_clone.send(video_packet) {
                             log::error!("send video packet error: {}", err);

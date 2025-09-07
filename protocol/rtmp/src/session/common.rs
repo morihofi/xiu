@@ -234,9 +234,14 @@ impl Common {
 
         if let Some(sender) = &self.packet_sender {
             if let Some(payload) = crate::remuxer::remux_h264(data) {
+                let is_keyframe = data
+                    .first()
+                    .map(|b| (b >> 4) == define::frame_type::KEY_FRAME)
+                    .unwrap_or(false);
                 let _ = sender.send(PacketData::Video {
                     timestamp: *timestamp,
                     data: payload,
+                    is_keyframe,
                 });
             }
         }
@@ -668,9 +673,14 @@ impl TStreamHandler for RtmpStreamHandler {
                                 }
                                 FrameData::Video { timestamp, data } => {
                                     if let Some(payload) = crate::remuxer::remux_h264(&data) {
+                                        let is_keyframe = data
+                                            .first()
+                                            .map(|b| (b >> 4) == define::frame_type::KEY_FRAME)
+                                            .unwrap_or(false);
                                         let _ = sender.send(PacketData::Video {
                                             timestamp,
                                             data: payload,
+                                            is_keyframe,
                                         });
                                     }
                                 }

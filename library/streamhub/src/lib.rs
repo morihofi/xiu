@@ -170,10 +170,15 @@ impl StreamDataTransceiver {
                         }
                     }
                 }
-                PacketData::Video { timestamp, data } => {
+                PacketData::Video {
+                    timestamp,
+                    data: payload,
+                    is_keyframe,
+                } => {
                     let data = PacketData::Video {
                         timestamp,
-                        data: data.clone(),
+                        data: payload.clone(),
+                        is_keyframe,
                     };
                     for (_, v) in packet_senders.lock().await.iter() {
                         if let Err(video_err) = v.send(data.clone()).map_err(|_| StreamHubError {

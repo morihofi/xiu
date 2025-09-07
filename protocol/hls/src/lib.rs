@@ -8,3 +8,4 @@ pub mod server;
 mod test_flv2hls;
 pub mod ts;
 pub mod adapter;
+pub mod writer;

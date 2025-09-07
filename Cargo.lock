@@ -2001,9 +2001,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.16.0"
+version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f0b0d4bf799edbc74508c1e8bf170ff5f41238e5f8225603ca7caaae2b7860"
+checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "opaque-debug"
@@ -2831,6 +2831,7 @@ dependencies = [
  "failure",
  "indexmap 1.9.3",
  "log",
+ "once_cell",
  "rand 0.8.5",
  "reqwest",
  "serde",

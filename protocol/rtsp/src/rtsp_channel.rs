@@ -213,3 +213,78 @@ impl RtcpChannel {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rtp::define::ANNEXB_NALU_START_CODE;
+    use bytes::{Bytes, BytesMut};
+    use bytesio::bytesio::{NetType, TNetIO};
+    use bytesio::bytesio_errors::BytesIOError;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    struct DummyIO;
+
+    #[async_trait::async_trait]
+    impl TNetIO for DummyIO {
+        async fn write(&mut self, _bytes: Bytes) -> Result<(), BytesIOError> {
+            Ok(())
+        }
+
+        async fn read(&mut self) -> Result<BytesMut, BytesIOError> {
+            Ok(BytesMut::new())
+        }
+
+        async fn read_timeout(
+            &mut self,
+            _duration: Duration,
+        ) -> Result<BytesMut, BytesIOError> {
+            Ok(BytesMut::new())
+        }
+
+        fn get_net_type(&self) -> NetType {
+            NetType::TCP
+        }
+    }
+
+    #[tokio::test]
+    async fn rtp_packer_increments_sequence_and_sets_version() {
+        let codec_info = RtspCodecInfo {
+            codec_id: RtspCodecId::H264,
+            payload_type: 96,
+            ..Default::default()
+        };
+        let mut channel = RtpChannel::new(codec_info);
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> =
+            Arc::new(Mutex::new(Box::new(DummyIO)));
+        channel.create_packer(io);
+
+        let packets = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let packets_clone = packets.clone();
+
+        channel.on_packet_handler(Box::new(move |_io, packet| {
+            let packets_inner = packets_clone.clone();
+            Box::pin(async move {
+                packets_inner.lock().unwrap().push(packet);
+                Ok(())
+            })
+        }));
+
+        let mut frame1 = BytesMut::new();
+        frame1.extend_from_slice(&ANNEXB_NALU_START_CODE);
+        frame1.extend_from_slice(&[0x65, 0x88, 0x84]);
+        channel.on_frame(&mut frame1, 0).await.unwrap();
+
+        let mut frame2 = BytesMut::new();
+        frame2.extend_from_slice(&ANNEXB_NALU_START_CODE);
+        frame2.extend_from_slice(&[0x65, 0x88, 0x85]);
+        channel.on_frame(&mut frame2, 0).await.unwrap();
+
+        let locked = packets.lock().unwrap();
+        assert_eq!(locked.len(), 2);
+        assert_eq!(locked[0].header.version, 2);
+        assert_eq!(locked[1].header.version, 2);
+        assert_eq!(locked[0].header.seq_number + 1, locked[1].header.seq_number);
+    }
+}

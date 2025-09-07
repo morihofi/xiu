@@ -76,7 +76,9 @@ impl M3u8 {
         let m3u8_folder = format!("{}/{}/{}", base, app_name, stream_name);
         fs::create_dir_all(m3u8_folder.clone()).unwrap();
 
-        let live_m3u8_name = format!("{stream_clone}.m3u8");
+        // Use a fixed name for the live playlist so that it is always served
+        // as `/live/<stream>/index.m3u8` regardless of the stream name.
+        let live_m3u8_name = String::from("index.m3u8");
         let vod_m3u8_name = if need_record {
             format!("vod_{stream_clone}.m3u8")
         } else {

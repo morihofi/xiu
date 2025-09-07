@@ -242,7 +242,7 @@ Use ffplay to play the rtmp/rtsp/httpflv/hls live stream:
     ffplay -i rtsp://127.0.0.1:5544/live/test
     ffplay -rtsp_transport tcp -i rtsp://127.0.0.1:5544/live/test
     ffplay -i http://localhost:8080/live/test.flv
-    ffplay -i http://localhost:8081/live/test/test.m3u8
+    ffplay -i http://localhost:8081/live/test/index.m3u8
 
 - How to play WebRTC stream*(Whep)
 

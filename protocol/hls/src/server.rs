@@ -180,12 +180,12 @@ mod tests {
     #[test]
     fn test_hls_path_parse() {
         // Playlist
-        let playlist = HlsPath::parse("/live/stream/stream.m3u8").unwrap();
+        let playlist = HlsPath::parse("/live/stream/index.m3u8").unwrap();
         assert_eq!(playlist.app_name, "live");
         assert_eq!(playlist.stream_name, "stream");
-        assert_eq!(playlist.file_name, "stream");
+        assert_eq!(playlist.file_name, "index");
         assert!(matches!(playlist.file_type, HlsFileType::Playlist));
-        assert_eq!(playlist.to_file_path("."), "./live/stream/stream.m3u8");
+        assert_eq!(playlist.to_file_path("."), "./live/stream/index.m3u8");
         assert_eq!(
             playlist.file_type.content_type(),
             "application/vnd.apple.mpegurl"
@@ -207,10 +207,10 @@ mod tests {
         assert!(HlsPath::parse("/live/stream/invalid.mp4").is_none());
         assert!(HlsPath::parse("/live/stream/../../etc/passwd").is_none());
         assert!(HlsPath::parse("/live/stream/...").is_none());
-        assert!(HlsPath::parse("/live/stream.m3u8").is_none());
+        assert!(HlsPath::parse("/live/index.m3u8").is_none());
         assert!(HlsPath::parse("/live/stream.ts").is_none());
         assert!(HlsPath::parse("/live/stream/").is_none());
-        assert!(HlsPath::parse("/live/stream.m3u8").is_none());
+        assert!(HlsPath::parse("/live/index.m3u8").is_none());
         assert!(HlsPath::parse("/live/stream.ts").is_none());
         assert!(HlsPath::parse("/live/stream/file.").is_none());
         assert!(HlsPath::parse("/live/stream/.m3u8").is_none());

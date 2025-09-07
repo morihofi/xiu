@@ -33,6 +33,8 @@ pub enum SessionErrorValue {
     StreamHubEventSendErr,
     #[fail(display = "cannot receive frame data from stream hub")]
     CannotReceiveFrameData,
+    #[fail(display = "cannot receive packet data from stream hub")]
+    CannotReceivePacketData,
     #[fail(display = "pack error: {}", _0)]
     PackerError(#[cause] PackerError),
     #[fail(display = "event execute error: {}", _0)]

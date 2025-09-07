@@ -1,9 +1,8 @@
-use crate::global_trait::Marshal;
-use crate::global_trait::Unmarshal;
+use crate::global_trait::{Marshal, Unmarshal as GlobalUnmarshal};
 use crate::rtsp_codec;
 
 use crate::rtp::define::ANNEXB_NALU_START_CODE;
-use crate::rtp::utils::Marshal as RtpMarshal;
+use crate::rtp::utils::Unmarshal as RtpUnmarshal;
 
 use commonlib::auth::SecretCarrier;
 use commonlib::http::HttpRequest as RtspRequest;
@@ -51,11 +50,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use crate::adapter::RtspAdapter;
 use commonlib::auth::Auth;
+use streamhub::ProtocolAdapter;
 use streamhub::{
     define::{
-        FrameData, Information, InformationSender, NotifyInfo, PublishType, PublisherInfo,
-        StreamHubEvent, StreamHubEventSender, SubscribeType, SubscriberInfo, TStreamHandler,
+        FrameData, Information, InformationSender, MediaPacket, NotifyInfo, PacketData,
+        PublishType, PublisherInfo, StreamHubEvent, StreamHubEventSender, SubscribeType,
+        SubscriberInfo, TStreamHandler,
     },
     errors::{StreamHubError, StreamHubErrorValue},
     statistics::StatisticsStream,
@@ -521,51 +523,6 @@ impl RtspServerSession {
             )?;
         }
 
-        for track in self.tracks.values_mut() {
-            let protocol_type = track.transport.protocol_type.clone();
-
-            match protocol_type {
-                ProtocolType::TCP => {
-                    let channel_identifer = if let Some(interleaveds) = track.transport.interleaved
-                    {
-                        interleaveds[0]
-                    } else {
-                        log::error!("handle_play:should not be here!!!");
-                        0
-                    };
-
-                    track.rtp_channel.lock().await.on_packet_handler(Box::new(
-                        move |io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>>, packet: RtpPacket| {
-                            Box::pin(async move {
-                                let msg = packet.marshal()?;
-                                let mut bytes_writer = AsyncBytesWriter::new(io);
-                                bytes_writer.write_u8(0x24)?;
-                                bytes_writer.write_u8(channel_identifer)?;
-                                bytes_writer.write_u16::<BigEndian>(msg.len() as u16)?;
-                                bytes_writer.write(&msg)?;
-                                bytes_writer.flush().await?;
-                                Ok(())
-                            })
-                        },
-                    ));
-                }
-                ProtocolType::UDP => {
-                    track.rtp_channel.lock().await.on_packet_handler(Box::new(
-                        move |io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>>, packet: RtpPacket| {
-                            Box::pin(async move {
-                                let mut bytes_writer = AsyncBytesWriter::new(io);
-
-                                let msg = packet.marshal()?;
-                                bytes_writer.write(&msg)?;
-                                bytes_writer.flush().await?;
-                                Ok(())
-                            })
-                        },
-                    ));
-                }
-            }
-        }
-
         let status_code = http::StatusCode::OK;
         let response = Self::gen_response(status_code, rtsp_request);
 
@@ -589,54 +546,115 @@ impl RtspServerSession {
             });
         }
 
-        let mut receiver = event_result_receiver.await??.0.frame_receiver.unwrap();
+        let mut receiver = match event_result_receiver.await??.0.packet_receiver {
+            Some(r) => r,
+            None => {
+                log::error!("handle_play: packet receiver not available");
+                return Err(SessionError {
+                    value: SessionErrorValue::CannotReceivePacketData,
+                });
+            }
+        };
 
+        let adapter = RtspAdapter;
         let mut retry_times = 0;
         loop {
-            if let Some(frame_data) = receiver.recv().await {
-                match frame_data {
-                    FrameData::Audio {
-                        timestamp,
-                        mut data,
-                    } => {
+            if let Some(packet_data) = receiver.recv().await {
+                retry_times = 0;
+                match packet_data {
+                    PacketData::Audio { timestamp, data } => {
                         if let Some(audio_track) = self.tracks.get_mut(&TrackType::Audio) {
-                            audio_track
-                                .rtp_channel
-                                .lock()
-                                .await
-                                .on_frame(&mut data, timestamp)
-                                .await?;
+                            let io = self.io.clone();
+                            let stream_id = self.stream_identifier.clone().unwrap_or_default();
+                            Self::send_packet(
+                                io,
+                                &adapter,
+                                audio_track,
+                                timestamp,
+                                data,
+                                stream_id,
+                            )
+                            .await?;
                         }
                     }
-                    FrameData::Video {
-                        timestamp,
-                        mut data,
-                    } => {
+                    PacketData::Video { timestamp, data } => {
                         if let Some(video_track) = self.tracks.get_mut(&TrackType::Video) {
-                            video_track
-                                .rtp_channel
-                                .lock()
-                                .await
-                                .on_frame(&mut data, timestamp)
-                                .await?;
+                            let io = self.io.clone();
+                            let stream_id = self.stream_identifier.clone().unwrap_or_default();
+                            Self::send_packet(
+                                io,
+                                &adapter,
+                                video_track,
+                                timestamp,
+                                data,
+                                stream_id,
+                            )
+                            .await?;
                         }
                     }
-                    _ => {}
                 }
             } else {
                 retry_times += 1;
                 log::info!(
-                    "send_channel_data: no data receives ,retry {} times!",
+                    "handle_play: no packet data received, retry {} times",
                     retry_times
                 );
-
                 if retry_times > 10 {
                     return Err(SessionError {
-                        value: SessionErrorValue::CannotReceiveFrameData,
+                        value: SessionErrorValue::CannotReceivePacketData,
                     });
                 }
             }
         }
+    }
+
+    async fn send_packet(
+        io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>>,
+        adapter: &RtspAdapter,
+        track: &mut RtspTrack,
+        timestamp: u32,
+        data: BytesMut,
+        stream_id: StreamIdentifier,
+    ) -> Result<(), SessionError> {
+        let media_packet = MediaPacket {
+            stream_id,
+            audio_codec: None,
+            video_codec: None,
+            pts: timestamp as u64,
+            dts: timestamp as u64,
+            is_keyframe: false,
+            payload: data,
+        };
+
+        let mut rtp_bytes = adapter.from_packet(media_packet);
+
+        match track.transport.protocol_type {
+            ProtocolType::TCP => {
+                if let Some(interleaveds) = track.transport.interleaved {
+                    rtp_bytes[1] = interleaveds[0];
+                }
+
+                let mut writer = AsyncBytesWriter::new(io.clone());
+                writer.write(&rtp_bytes)?;
+                writer.flush().await?;
+
+                let payload = BytesMut::from(&rtp_bytes[4..]);
+                let mut reader = BytesReader::new(payload);
+                match RtpPacket::unmarshal(&mut reader) {
+                    Ok(pkt) => {
+                        track.rtcp_channel.lock().await.on_packet(pkt);
+                    }
+                    Err(err) => {
+                        log::error!("handle_play: malformed packet data: {}", err);
+                    }
+                }
+            }
+            ProtocolType::UDP => {
+                log::error!("handle_play: UDP transport not supported for packet data");
+            }
+        }
+
+        Ok(())
     }
 
     async fn handle_record(&mut self, rtsp_request: &RtspRequest) -> Result<(), SessionError> {
@@ -781,7 +799,7 @@ impl RtspServerSession {
         SubscriberInfo {
             id,
             sub_type: SubscribeType::RtspPull,
-            sub_data_type: streamhub::define::SubDataType::Frame,
+            sub_data_type: streamhub::define::SubDataType::Packet,
             notify_info: NotifyInfo {
                 request_url: String::from(""),
                 remote_addr: String::from(""),
@@ -1026,9 +1044,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_fragmented_rtsp_header() {
-        let part1 = BytesMut::from(
-            b"OPTIONS rtsp://example.com/stream RTSP/1.0\r\nCSeq: 1".as_ref(),
-        );
+        let part1 =
+            BytesMut::from(b"OPTIONS rtsp://example.com/stream RTSP/1.0\r\nCSeq: 1".as_ref());
         let part2 = BytesMut::from(b"\r\n\r\n".as_ref());
         let mock = MockIO::new(vec![part1, part2]);
         let mut session = build_session(mock);
@@ -1037,9 +1054,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_corrupted_rtsp_message() {
-        let req = BytesMut::from(
-            b"OPTIONS rtsp://example.com RTSP/1.0\r\nCSeq: 1\r\n\r\n".as_ref(),
-        );
+        let req =
+            BytesMut::from(b"OPTIONS rtsp://example.com RTSP/1.0\r\nCSeq: 1\r\n\r\n".as_ref());
         let mock = MockIO::new(vec![req]);
         let mut session = build_session(mock);
         let err = session.on_rtsp_message().await.unwrap_err();

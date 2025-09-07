@@ -61,7 +61,7 @@ use streamhub::{
     },
     errors::{StreamHubError, StreamHubErrorValue},
     statistics::StatisticsStream,
-    stream::StreamIdentifier,
+    stream::{StreamIdentifier, StreamKey},
     utils::{RandomDigitCount, Uuid},
 };
 use tokio::net::TcpStream;
@@ -82,7 +82,7 @@ pub struct RtspServerSession {
 
     auth: Option<Auth>,
 
-    pub stream_identifier: Option<StreamIdentifier>,
+    pub stream_key: Option<StreamKey>,
     pub is_normal_exit: bool,
     remote_addr: SocketAddr,
 }
@@ -144,9 +144,23 @@ impl RtspServerSession {
             event_producer,
             stream_handler: Arc::new(RtspStreamHandler::new()),
             auth,
-            stream_identifier: None,
+            stream_key: None,
             is_normal_exit: false,
             remote_addr,
+        }
+    }
+
+    fn parse_stream_key(path: &str) -> Result<StreamKey, SessionError> {
+        let path = path.trim_start_matches('/');
+        if let Some((app, stream)) = path.split_once('/') {
+            Ok(StreamKey {
+                app_name: app.to_string(),
+                stream_name: stream.to_string(),
+            })
+        } else {
+            Err(SessionError {
+                value: SessionErrorValue::InvalidStreamPath,
+            })
         }
     }
 
@@ -315,10 +329,13 @@ impl RtspServerSession {
         // receiver is used to receive the sdp information
         let (sender, mut receiver) = mpsc::unbounded_channel();
 
-        let identifier = StreamIdentifier::Rtsp {
-            stream_path: rtsp_request.uri.path.clone(),
+        let key = Self::parse_stream_key(&rtsp_request.uri.path)?;
+        self.stream_key = Some(key.clone());
+
+        let identifier = StreamIdentifier::Rtmp {
+            app_name: key.app_name.clone(),
+            stream_name: key.stream_name.clone(),
         };
-        self.stream_identifier = Some(identifier.clone());
 
         let request_event = StreamHubEvent::Request { identifier, sender };
 
@@ -373,10 +390,13 @@ impl RtspServerSession {
 
         let (event_result_sender, event_result_receiver) = oneshot::channel();
 
-        let identifier = StreamIdentifier::Rtsp {
-            stream_path: rtsp_request.uri.path.clone(),
+        let key = Self::parse_stream_key(&rtsp_request.uri.path)?;
+        self.stream_key = Some(key.clone());
+
+        let identifier = StreamIdentifier::Rtmp {
+            app_name: key.app_name.clone(),
+            stream_name: key.stream_name.clone(),
         };
-        self.stream_identifier = Some(identifier.clone());
 
         let publish_event = StreamHubEvent::Publish {
             identifier,
@@ -532,9 +552,13 @@ impl RtspServerSession {
 
         let (event_result_sender, event_result_receiver) = oneshot::channel();
 
+        let key = Self::parse_stream_key(&rtsp_request.uri.path)?;
+        self.stream_key = Some(key.clone());
+
         let subscribe_event = StreamHubEvent::Subscribe {
-            identifier: StreamIdentifier::Rtsp {
-                stream_path: rtsp_request.uri.path.clone(),
+            identifier: StreamIdentifier::Rtmp {
+                app_name: key.app_name.clone(),
+                stream_name: key.stream_name.clone(),
             },
             info: self.get_subscriber_info(),
             result_sender: event_result_sender,
@@ -565,7 +589,14 @@ impl RtspServerSession {
                     PacketData::Audio { timestamp, data } => {
                         if let Some(audio_track) = self.tracks.get_mut(&TrackType::Audio) {
                             let io = self.io.clone();
-                            let stream_id = self.stream_identifier.clone().unwrap_or_default();
+                            let stream_id = self
+                                .stream_key
+                                .as_ref()
+                                .map(|k| StreamIdentifier::Rtmp {
+                                    app_name: k.app_name.clone(),
+                                    stream_name: k.stream_name.clone(),
+                                })
+                                .unwrap_or_default();
                             Self::send_packet(
                                 io,
                                 &adapter,
@@ -580,7 +611,14 @@ impl RtspServerSession {
                     PacketData::Video { timestamp, data } => {
                         if let Some(video_track) = self.tracks.get_mut(&TrackType::Video) {
                             let io = self.io.clone();
-                            let stream_id = self.stream_identifier.clone().unwrap_or_default();
+                            let stream_id = self
+                                .stream_key
+                                .as_ref()
+                                .map(|k| StreamIdentifier::Rtmp {
+                                    app_name: k.app_name.clone(),
+                                    stream_name: k.stream_name.clone(),
+                                })
+                                .unwrap_or_default();
                             Self::send_packet(
                                 io,
                                 &adapter,
@@ -681,14 +719,25 @@ impl RtspServerSession {
     }
 
     fn handle_teardown(&mut self, rtsp_request: &RtspRequest) -> Result<(), SessionError> {
-        let identifier = StreamIdentifier::Rtsp {
-            stream_path: rtsp_request.uri.path.clone(),
-        };
+        if self.stream_key.is_none() {
+            let key = Self::parse_stream_key(&rtsp_request.uri.path)?;
+            self.stream_key = Some(key);
+        }
         log::info!("handle_teardown...");
-        self.exit(identifier)
+        self.exit()
     }
 
-    pub fn exit(&mut self, identifier: StreamIdentifier) -> Result<(), SessionError> {
+    pub fn exit(&mut self) -> Result<(), SessionError> {
+        let key = match &self.stream_key {
+            Some(k) => k.clone(),
+            None => return Ok(()),
+        };
+
+        let identifier = StreamIdentifier::Rtmp {
+            app_name: key.app_name.clone(),
+            stream_name: key.stream_name.clone(),
+        };
+
         let event = match self.session_type {
             define::ServerSessionType::Pull => StreamHubEvent::UnSubscribe {
                 identifier,
@@ -1026,7 +1075,7 @@ mod tests {
             stream_handler: Arc::new(RtspStreamHandler::new()),
             event_producer: event_sender,
             auth: None,
-            stream_identifier: None,
+            stream_key: None,
             is_normal_exit: false,
             remote_addr: "127.0.0.1:0".parse().unwrap(),
         }

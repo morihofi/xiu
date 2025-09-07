@@ -51,6 +51,8 @@ pub enum SessionErrorValue {
     RtspResponseStatusError,
     #[fail(display = "RTSP header not complete")]
     RtspHeaderNotComplete,
+    #[fail(display = "invalid stream path")]
+    InvalidStreamPath,
 }
 
 impl From<BytesIOError> for SessionError {

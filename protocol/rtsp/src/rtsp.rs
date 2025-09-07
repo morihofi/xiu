@@ -45,8 +45,8 @@ impl RtspServer {
                     );
 
                     if !session.is_normal_exit {
-                        if let Some(identifier) = session.stream_identifier.clone() {
-                            match session.exit(identifier) {
+                        if session.stream_key.is_some() {
+                            match session.exit() {
                                 Err(err) => {
                                     log::error!(
                                         "session exit error: session id: {} session type: {}, error info: {}",

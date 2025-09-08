@@ -11,6 +11,8 @@ use {
 // #[tokio::main(flavor = "current_thread")]
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Register protocol adapters for MediaPacket conversions
+    register_adapters();
     let log_levels = vec!["trace", "debug", "info", "warn", "error"];
 
     let mut cmd = Command::new("XIU")
@@ -206,4 +208,22 @@ async fn main() -> Result<()> {
     signal::ctrl_c().await?;
     logger.stop();
     Ok(())
+}
+
+fn register_adapters() {
+    // These adapters populate the global ProtocolAdapter registry.
+    // It’s safe to register regardless of whether protocol listeners are enabled.
+    #[allow(unused_imports)]
+    use {hls::adapter as hls_adapter, httpflv::adapter as httpflv_adapter};
+
+    // Register available adapters. Ignore duplicates if any are re-registered.
+    httpflv_adapter::register();
+    hls_adapter::register();
+
+    // Register WebRTC adapter only when feature is enabled
+    #[cfg(feature = "webrtc")]
+    {
+        use xwebrtc::adapter as webrtc_adapter;
+        webrtc_adapter::register();
+    }
 }

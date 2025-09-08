@@ -951,6 +951,11 @@ impl TStreamHandler for RtspStreamHandler {
                     value: StreamHubErrorValue::NotCorrectDataSenderType,
                 });
             }
+            DataSender::Media { sender: _ } => {
+                return Err(StreamHubError {
+                    value: StreamHubErrorValue::NotCorrectDataSenderType,
+                });
+            }
         };
         match (desc.op, desc.from, desc.to) {
             (StreamOp::Remux, ProtocolId::Rtsp, Some(ProtocolId::Rtmp)) => {

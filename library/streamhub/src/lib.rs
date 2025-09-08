@@ -47,6 +47,8 @@ pub struct StreamDataTransceiver {
     id_to_frame_sender: Arc<Mutex<HashMap<Uuid, FrameDataSender>>>,
     //used for sending audio/video packet data to players/subscribers
     id_to_packet_sender: Arc<Mutex<HashMap<Uuid, PacketDataSender>>>,
+    //used for sending unified media packets to players/subscribers
+    id_to_media_sender: Arc<Mutex<HashMap<Uuid, define::MediaPacketSender>>>,
     //publisher and subscribers use this sender to submit statistical data
     statistic_data_sender: StatisticDataSender,
     //used for receiving statistical data from publishers and subscribers
@@ -72,6 +74,7 @@ impl StreamDataTransceiver {
             statistic_data_receiver,
             id_to_frame_sender: Arc::new(Mutex::new(HashMap::new())),
             id_to_packet_sender: Arc::new(Mutex::new(HashMap::new())),
+            id_to_media_sender: Arc::new(Mutex::new(HashMap::new())),
             stream_handler: h,
             statistic_data: Arc::new(Mutex::new(StatisticsStream::new(identifier))),
         }
@@ -80,6 +83,7 @@ impl StreamDataTransceiver {
     async fn receive_frame_data(
         data: Option<FrameData>,
         frame_senders: &Arc<Mutex<HashMap<Uuid, FrameDataSender>>>,
+        media_senders: &Arc<Mutex<HashMap<Uuid, define::MediaPacketSender>>>,
     ) {
         if let Some(val) = data {
             match val {
@@ -88,9 +92,10 @@ impl StreamDataTransceiver {
                     data: _,
                 } => {}
                 FrameData::Audio { timestamp, data } => {
+                    let bytes = data.clone();
                     let data = FrameData::Audio {
                         timestamp,
-                        data: data.clone(),
+                        data: bytes.clone(),
                     };
 
                     for (_, v) in frame_senders.lock().await.iter() {
@@ -100,17 +105,50 @@ impl StreamDataTransceiver {
                             log::error!("Transmiter send error: {}", audio_err);
                         }
                     }
+
+                    // Also forward as MediaPacket
+                    let packet = define::MediaPacket {
+                        stream_id: stream::StreamIdentifier::default(),
+                        audio_codec: None,
+                        video_codec: None,
+                        pts: timestamp as u64,
+                        dts: timestamp as u64,
+                        is_keyframe: false,
+                        payload: bytes,
+                    };
+                    for (_, v) in media_senders.lock().await.iter() {
+                        if let Err(err) = v.send(packet.clone()) {
+                            log::error!("Transmiter send media audio error: {}", err);
+                        }
+                    }
                 }
                 FrameData::Video { timestamp, data } => {
+                    let bytes = data.clone();
                     let data = FrameData::Video {
                         timestamp,
-                        data: data.clone(),
+                        data: bytes.clone(),
                     };
                     for (_, v) in frame_senders.lock().await.iter() {
                         if let Err(video_err) = v.send(data.clone()).map_err(|_| StreamHubError {
                             value: StreamHubErrorValue::SendVideoError,
                         }) {
                             log::error!("Transmiter send error: {}", video_err);
+                        }
+                    }
+
+                    // Also forward as MediaPacket
+                    let packet = define::MediaPacket {
+                        stream_id: stream::StreamIdentifier::default(),
+                        audio_codec: None,
+                        video_codec: None,
+                        pts: timestamp as u64,
+                        dts: timestamp as u64,
+                        is_keyframe: false,
+                        payload: bytes,
+                    };
+                    for (_, v) in media_senders.lock().await.iter() {
+                        if let Err(err) = v.send(packet.clone()) {
+                            log::error!("Transmiter send media video error: {}", err);
                         }
                     }
                 }
@@ -136,12 +174,13 @@ impl StreamDataTransceiver {
         mut exit: broadcast::Receiver<()>,
         mut receiver: FrameDataReceiver,
         frame_senders: Arc<Mutex<HashMap<Uuid, FrameDataSender>>>,
+        media_senders: Arc<Mutex<HashMap<Uuid, define::MediaPacketSender>>>,
     ) {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     data = receiver.recv() => {
-                       Self::receive_frame_data(data, &frame_senders).await;
+                       Self::receive_frame_data(data, &frame_senders, &media_senders).await;
                     }
                     _ = exit.recv()=>{
                         break;
@@ -154,13 +193,15 @@ impl StreamDataTransceiver {
     async fn receive_packet_data(
         data: Option<PacketData>,
         packet_senders: &Arc<Mutex<HashMap<Uuid, PacketDataSender>>>,
+        media_senders: &Arc<Mutex<HashMap<Uuid, define::MediaPacketSender>>>,
     ) {
         if let Some(val) = data {
             match val {
                 PacketData::Audio { timestamp, data } => {
+                    let bytes = data.clone();
                     let data = PacketData::Audio {
                         timestamp,
-                        data: data.clone(),
+                        data: bytes.clone(),
                     };
 
                     for (_, v) in packet_senders.lock().await.iter() {
@@ -168,6 +209,22 @@ impl StreamDataTransceiver {
                             value: StreamHubErrorValue::SendAudioError,
                         }) {
                             log::error!("Transmiter send error: {}", audio_err);
+                        }
+                    }
+
+                    // Also forward as MediaPacket
+                    let packet = define::MediaPacket {
+                        stream_id: stream::StreamIdentifier::default(),
+                        audio_codec: None,
+                        video_codec: None,
+                        pts: timestamp as u64,
+                        dts: timestamp as u64,
+                        is_keyframe: false,
+                        payload: bytes,
+                    };
+                    for (_, v) in media_senders.lock().await.iter() {
+                        if let Err(err) = v.send(packet.clone()) {
+                            log::error!("Transmiter send media audio error: {}", err);
                         }
                     }
                 }
@@ -188,6 +245,22 @@ impl StreamDataTransceiver {
                             log::error!("Transmiter send error: {}", video_err);
                         }
                     }
+
+                    // Also forward as MediaPacket
+                    let packet = define::MediaPacket {
+                        stream_id: stream::StreamIdentifier::default(),
+                        audio_codec: None,
+                        video_codec: None,
+                        pts: timestamp as u64,
+                        dts: timestamp as u64,
+                        is_keyframe,
+                        payload: payload.clone(),
+                    };
+                    for (_, v) in media_senders.lock().await.iter() {
+                        if let Err(err) = v.send(packet.clone()) {
+                            log::error!("Transmiter send media video error: {}", err);
+                        }
+                    }
                 }
             }
         }
@@ -197,12 +270,45 @@ impl StreamDataTransceiver {
         mut exit: broadcast::Receiver<()>,
         mut receiver: PacketDataReceiver,
         packet_senders: Arc<Mutex<HashMap<Uuid, PacketDataSender>>>,
+        media_senders: Arc<Mutex<HashMap<Uuid, define::MediaPacketSender>>>,
     ) {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     data = receiver.recv() => {
-                       Self::receive_packet_data(data, &packet_senders).await;
+                       Self::receive_packet_data(data, &packet_senders, &media_senders).await;
+                    }
+                    _ = exit.recv()=>{
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    async fn receive_media_data(
+        data: Option<define::MediaPacket>,
+        media_senders: &Arc<Mutex<HashMap<Uuid, define::MediaPacketSender>>>,
+    ) {
+        if let Some(packet) = data {
+            for (_, v) in media_senders.lock().await.iter() {
+                if let Err(err) = v.send(packet.clone()) {
+                    log::error!("Transmiter send media packet error: {}", err);
+                }
+            }
+        }
+    }
+
+    async fn receive_media_data_loop(
+        mut exit: broadcast::Receiver<()>,
+        mut receiver: define::MediaPacketReceiver,
+        media_senders: Arc<Mutex<HashMap<Uuid, define::MediaPacketSender>>>,
+    ) {
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    data = receiver.recv() => {
+                       Self::receive_media_data(data, &media_senders).await;
                     }
                     _ = exit.recv()=>{
                         break;
@@ -372,6 +478,7 @@ impl StreamDataTransceiver {
         mut receiver: TransceiverEventReceiver,
         packet_senders: Arc<Mutex<HashMap<Uuid, PacketDataSender>>>,
         frame_senders: Arc<Mutex<HashMap<Uuid, FrameDataSender>>>,
+        media_senders: Arc<Mutex<HashMap<Uuid, define::MediaPacketSender>>>,
         statistic_sender: StatisticDataSender,
         statistics_data: Arc<Mutex<StatisticsStream>>,
     ) {
@@ -402,6 +509,13 @@ impl StreamDataTransceiver {
                                 } => {
                                     packet_senders.lock().await.insert(info.id, packet_sender);
                                 }
+                                DataSender::Media { sender } => {
+                                    // Try optional prior-media path; ignore errors
+                                    let _ = stream_handler
+                                        .send_prior_media(sender.clone(), info.desc.clone())
+                                        .await;
+                                    media_senders.lock().await.insert(info.id, sender);
+                                }
                             }
 
                             if let Err(err) = result_sender.send(statistic_sender.clone()) {
@@ -424,6 +538,9 @@ impl StreamDataTransceiver {
                                 packet_senders.lock().await.remove(&info.id);
                             } else {
                                 frame_senders.lock().await.remove(&info.id);
+                            }
+                            if matches!(info.sub_data_type, define::SubDataType::Media) {
+                                media_senders.lock().await.remove(&info.id);
                             }
                             let mut statistics_data = statistics_data.lock().await;
                             let subscribers = &mut statistics_data.subscribers;
@@ -467,6 +584,7 @@ impl StreamDataTransceiver {
                 tx.subscribe(),
                 receiver,
                 self.id_to_frame_sender.clone(),
+                self.id_to_media_sender.clone(),
             )
             .await;
         }
@@ -476,6 +594,16 @@ impl StreamDataTransceiver {
                 tx.subscribe(),
                 receiver,
                 self.id_to_packet_sender.clone(),
+                self.id_to_media_sender.clone(),
+            )
+            .await;
+        }
+
+        if let Some(receiver) = self.data_receiver.media_receiver {
+            Self::receive_media_data_loop(
+                tx.subscribe(),
+                receiver,
+                self.id_to_media_sender.clone(),
             )
             .await;
         }
@@ -494,6 +622,7 @@ impl StreamDataTransceiver {
             self.event_receiver,
             self.id_to_packet_sender,
             self.id_to_frame_sender,
+            self.id_to_media_sender,
             self.statistic_data_sender,
             self.statistic_data.clone(),
         )
@@ -596,6 +725,7 @@ impl StreamsHub {
                                 DataReceiver {
                                     frame_receiver: Some(receiver_chan),
                                     packet_receiver: None,
+                                    media_receiver: None,
                                 },
                             )
                         }
@@ -607,6 +737,7 @@ impl StreamsHub {
                                 DataReceiver {
                                     frame_receiver: None,
                                     packet_receiver: Some(receiver_chan),
+                                    media_receiver: None,
                                 },
                             )
                         }
@@ -622,6 +753,20 @@ impl StreamsHub {
                                 DataReceiver {
                                     frame_receiver: Some(receiver_frame_chan),
                                     packet_receiver: Some(receiver_packet_chan),
+                                    media_receiver: None,
+                                },
+                            )
+                        }
+                        define::PubDataType::Media => {
+                            // Media-only publishing using MediaPacket
+                            let (_sender_unused, receiver_media_chan) = mpsc::unbounded_channel();
+                            (
+                                None,
+                                None,
+                                DataReceiver {
+                                    frame_receiver: None,
+                                    packet_receiver: None,
+                                    media_receiver: Some(receiver_media_chan),
                                 },
                             )
                         }
@@ -686,7 +831,7 @@ impl StreamsHub {
                     let sub_id = info.id;
                     let info_clone = info.clone();
 
-                    //new chan for Frame/Packet sender and receiver
+                    //new chan for Frame/Packet/Media sender and receiver
                     let (sender, receiver) = match info.sub_data_type {
                         define::SubDataType::Frame => {
                             let (sender_chan, receiver_chan) = mpsc::unbounded_channel();
@@ -697,6 +842,7 @@ impl StreamsHub {
                                 DataReceiver {
                                     frame_receiver: Some(receiver_chan),
                                     packet_receiver: None,
+                                    media_receiver: None,
                                 },
                             )
                         }
@@ -709,6 +855,20 @@ impl StreamsHub {
                                 DataReceiver {
                                     frame_receiver: None,
                                     packet_receiver: Some(receiver_chan),
+                                    media_receiver: None,
+                                },
+                            )
+                        }
+                        define::SubDataType::Media => {
+                            let (sender_chan, receiver_chan) = mpsc::unbounded_channel();
+                            (
+                                DataSender::Media {
+                                    sender: sender_chan,
+                                },
+                                DataReceiver {
+                                    frame_receiver: None,
+                                    packet_receiver: None,
+                                    media_receiver: Some(receiver_chan),
                                 },
                             )
                         }

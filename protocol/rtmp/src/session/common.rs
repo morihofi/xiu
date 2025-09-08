@@ -765,6 +765,9 @@ impl TStreamHandler for RtmpStreamHandler {
                     cache.clear_gops();
                 }
             }
+            DataSender::Media { sender: _ } => {
+                // Not supported in RTMP prior-data path; ignore
+            }
         }
 
         Ok(())

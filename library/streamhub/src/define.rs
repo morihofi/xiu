@@ -213,6 +213,16 @@ pub trait TStreamHandler: Send + Sync {
         sender: DataSender,
         desc: SubscribeDesc,
     ) -> Result<(), StreamHubError>;
+    /// Optionally send prior media data using MediaPacket messages.
+    /// Default implementation does nothing; protocol handlers can override
+    /// to emit SPS/PPS, ASC, or other priming data as MediaPackets.
+    async fn send_prior_media(
+        &self,
+        _sender: MediaPacketSender,
+        _desc: SubscribeDesc,
+    ) -> Result<(), StreamHubError> {
+        Ok(())
+    }
     async fn get_statistic_data(&self) -> Option<StatisticsStream>;
     async fn send_information(&self, sender: InformationSender);
 }
@@ -220,18 +230,21 @@ pub trait TStreamHandler: Send + Sync {
 pub struct DataReceiver {
     pub frame_receiver: Option<FrameDataReceiver>,
     pub packet_receiver: Option<PacketDataReceiver>,
+    pub media_receiver: Option<MediaPacketReceiver>,
 }
 
 #[derive(Debug, Clone)]
 pub enum DataSender {
     Frame { sender: FrameDataSender },
     Packet { sender: PacketDataSender },
+    Media { sender: MediaPacketSender },
 }
 //we can only sub one kind of stream.
 #[derive(Debug, Clone, Serialize)]
 pub enum SubDataType {
     Frame,
     Packet,
+    Media,
 }
 //we can pub frame or packet or both.
 #[derive(Debug, Clone, Serialize)]
@@ -239,6 +252,7 @@ pub enum PubDataType {
     Frame,
     Packet,
     Both,
+    Media,
 }
 
 #[derive(Clone, Serialize, Debug)]

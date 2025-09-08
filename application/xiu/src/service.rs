@@ -18,8 +18,10 @@ use {
     },
     streamhub::{notify::http::HttpNotifier, notify::Notifier, StreamsHub},
     tokio,
-    xwebrtc::webrtc::WebRTCServer,
 };
+
+#[cfg(feature = "webrtc")]
+use xwebrtc::webrtc::WebRTCServer;
 
 pub struct Service {
     cfg: Config,
@@ -234,6 +236,7 @@ impl Service {
         Ok(())
     }
 
+    #[cfg(feature = "webrtc")]
     async fn start_webrtc(&mut self, stream_hub: &mut StreamsHub) -> Result<()> {
         let webrtc_cfg = &self.cfg.webrtc;
 
@@ -259,6 +262,12 @@ impl Service {
             });
         }
 
+        Ok(())
+    }
+
+    // No-op when WebRTC feature is disabled
+    #[cfg(not(feature = "webrtc"))]
+    async fn start_webrtc(&mut self, _stream_hub: &mut StreamsHub) -> Result<()> {
         Ok(())
     }
 

@@ -45,6 +45,7 @@ pub struct RtpChannel {
     pub rtp_unpacker: Option<Box<dyn TUnPacker>>,
     ssrc: u32,
     init_sequence: u16,
+    timestamp: u32,
 }
 
 #[derive(Default)]
@@ -63,6 +64,7 @@ impl RtpChannel {
             rtp_packer: None,
             rtp_unpacker: None,
             init_sequence: 0,
+            timestamp: 0,
         };
         rtp_channel.create_unpacker();
         rtp_channel
@@ -82,6 +84,7 @@ impl RtpChannel {
         nalus: &mut BytesMut,
         timestamp: u32,
     ) -> Result<(), PackerError> {
+        self.timestamp = timestamp;
         if let Some(packer) = &mut self.rtp_packer {
             return packer.pack(nalus, timestamp).await;
         }
@@ -108,6 +111,18 @@ impl RtpChannel {
         if let Some(packer) = &mut self.rtp_packer {
             packer.on_packet_for_rtcp_handler(f);
         }
+    }
+
+    pub fn get_ssrc(&self) -> u32 {
+        self.ssrc
+    }
+
+    pub fn get_sequence_number(&self) -> u16 {
+        self.init_sequence
+    }
+
+    pub fn get_timestamp(&self) -> u32 {
+        self.timestamp
     }
 }
 

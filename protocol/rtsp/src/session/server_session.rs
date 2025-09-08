@@ -605,7 +605,35 @@ impl RtspServerSession {
         }
 
         let status_code = http::StatusCode::OK;
-        let response = Self::gen_response(status_code, rtsp_request);
+        let mut response = Self::gen_response(status_code, rtsp_request);
+
+        // Build RTP-Info header with track timing information
+        let mut rtp_info_list = Vec::new();
+        for track in self.tracks.values() {
+            let rtp_channel = track.rtp_channel.lock().await;
+            let _ssrc = rtp_channel.get_ssrc();
+            let seq = rtp_channel.get_sequence_number();
+            let ts = rtp_channel.get_timestamp();
+
+            let url = if track.uri.is_empty() {
+                let mut base = rtsp_request.uri.path.clone();
+                if !base.ends_with('/') {
+                    base.push('/');
+                }
+                base.push_str(&track.media_control);
+                base
+            } else {
+                track.uri.clone()
+            };
+
+            rtp_info_list.push(format!("url={};seq={};rtptime={}", url, seq, ts));
+        }
+
+        if !rtp_info_list.is_empty() {
+            response
+                .headers
+                .insert("RTP-Info".to_string(), rtp_info_list.join(","));
+        }
 
         self.send_response(&response).await?;
 

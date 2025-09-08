@@ -4,7 +4,6 @@ use std::sync::Arc;
 use xrtsp::{
     relay::pull_client_manager::RtspPullClientManager,
     rtsp::RtspServer,
-    writer::RtspWriter,
 };
 
 use {
@@ -119,6 +118,9 @@ impl Service {
                 return Ok(());
             }
 
+            // Register the RTMP adapter for cross-protocol remuxing.
+            rtmp::init(true);
+
             let gop_num = if let Some(gop_num_val) = rtmp_cfg_value.gop_num {
                 gop_num_val
             } else {
@@ -203,7 +205,7 @@ impl Service {
             }
 
             // Register the RTSP adapter so other protocols can remux to RTSP.
-            let _rtsp_writer = RtspWriter::new(true);
+            xrtsp::init(true);
 
             let producer = stream_hub.get_hub_event_sender();
 
@@ -243,6 +245,9 @@ impl Service {
                 return Ok(());
             }
 
+            // Register the WebRTC adapter for cross-protocol remuxing.
+            xwebrtc::init(true);
+
             let producer = stream_hub.get_hub_event_sender();
 
             let listen_port = webrtc_cfg_value.port;
@@ -267,6 +272,9 @@ impl Service {
             if !httpflv_cfg_value.enabled {
                 return Ok(());
             }
+
+            // Register the HTTP-FLV adapter for cross-protocol remuxing.
+            httpflv::init(true);
             let port = httpflv_cfg_value.port;
             let event_producer = stream_hub.get_hub_event_sender();
 
@@ -288,6 +296,9 @@ impl Service {
             if !hls_cfg_value.enabled {
                 return Ok(());
             }
+
+            // Register the HLS adapter for cross-protocol remuxing.
+            hls::init(true);
 
             let event_producer = stream_hub.get_hub_event_sender();
             let cient_event_consumer = stream_hub.get_client_event_consumer();

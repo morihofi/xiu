@@ -16,6 +16,7 @@ pub mod notify;
 pub mod statistics;
 pub mod stream;
 pub mod utils;
+pub mod writer;
 
 pub use adapter::ProtocolAdapter;
 

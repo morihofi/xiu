@@ -51,6 +51,8 @@ async fn main() -> Result<()> {
     let push_rtmp_url = matches.get_one::<String>("pushrtmp").unwrap().clone();
 
     let mut stream_hub = StreamsHub::new(None);
+    // Register RTMP adapter to allow remuxing.
+    rtmp::init(true);
     let producer = stream_hub.get_hub_event_sender();
     tokio::spawn(async move { stream_hub.run().await });
 

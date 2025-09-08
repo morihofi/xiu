@@ -9,3 +9,7 @@ mod test_flv2hls;
 pub mod ts;
 pub mod adapter;
 pub mod writer;
+
+pub fn init(enabled: bool) {
+    writer::register(enabled);
+}

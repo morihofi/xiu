@@ -5,3 +5,7 @@ pub mod server;
 pub mod server_test;
 pub mod adapter;
 pub mod writer;
+
+pub fn init(enabled: bool) {
+    writer::register(enabled);
+}

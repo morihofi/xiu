@@ -8,3 +8,7 @@ pub mod opus2aac;
 pub mod rtp_queue;
 pub mod adapter;
 pub mod writer;
+
+pub fn init(enabled: bool) {
+    writer::register(enabled);
+}

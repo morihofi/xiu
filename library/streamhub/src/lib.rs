@@ -24,7 +24,8 @@ use {
     define::{
         BroadcastEvent, BroadcastEventReceiver, BroadcastEventSender, DataReceiver, DataSender,
         FrameData, FrameDataSender, Information, StreamHubEvent, StreamHubEventReceiver,
-        StreamHubEventSender, SubscribeType, SubscriberInfo, TStreamHandler, TransceiverEvent,
+        StreamHubEventSender, SubscribeDesc, SubscriberInfo, TStreamHandler, TransceiverEvent,
+        ProtocolId, StreamOp,
         TransceiverEventReceiver, TransceiverEventSender,
     },
     errors::{StreamHubError, StreamHubErrorValue},
@@ -321,14 +322,14 @@ impl StreamDataTransceiver {
                 StatisticData::Subscriber {
                     id,
                     remote_addr,
-                    sub_type,
+                    desc,
                     start_time,
                 } => {
                     let subscriber = &mut statistics_data.lock().await.subscribers;
                     let sub = StatisticSubscriber {
                         id,
                         remote_address: remote_addr,
-                        sub_type,
+                        desc,
                         start_time,
                         send_bitrate: 0,
                         send_bytes: 0,
@@ -383,9 +384,8 @@ impl StreamDataTransceiver {
                             info,
                             result_sender,
                         } => {
-                            if let Err(err) = stream_handler
-                                .send_prior_data(sender.clone(), info.sub_type)
-                                .await
+                            if let Err(err) =
+                                stream_handler.send_prior_data(sender.clone(), info.desc.clone()).await
                             {
                                 log::error!("receive_event_loop send_prior_data err: {}", err);
                                 break;
@@ -414,15 +414,15 @@ impl StreamDataTransceiver {
                             statistics_data.subscriber_count += 1;
                         }
                         TransceiverEvent::UnSubscribe { info } => {
-                            match info.sub_type {
-                                SubscribeType::RtpPull
-                                | SubscribeType::RtspPull
-                                | SubscribeType::WhepPull => {
-                                    packet_senders.lock().await.remove(&info.id);
-                                }
-                                _ => {
-                                    frame_senders.lock().await.remove(&info.id);
-                                }
+                            if matches!(
+                                (info.desc.op, &info.desc.from),
+                                (StreamOp::Pull, ProtocolId::Rtp)
+                                    | (StreamOp::Pull, ProtocolId::Rtsp)
+                                    | (StreamOp::Pull, ProtocolId::WebRtc)
+                            ) {
+                                packet_senders.lock().await.remove(&info.id);
+                            } else {
+                                frame_senders.lock().await.remove(&info.id);
                             }
                             let mut statistics_data = statistics_data.lock().await;
                             let subscribers = &mut statistics_data.subscribers;
@@ -1146,8 +1146,8 @@ mod tests {
     use super::*;
 
     use crate::define::{
-        Information, InformationSender, NotifyInfo, PubDataType, PublishType, PublisherInfo,
-        StreamHubEvent,
+        Information, InformationSender, NotifyInfo, PubDataType, PublishDesc, PublisherInfo,
+        StreamHubEvent, StreamOp, ProtocolId,
     };
     use crate::utils::RandomDigitCount;
     use async_trait::async_trait;
@@ -1161,7 +1161,7 @@ mod tests {
         async fn send_prior_data(
             &self,
             _sender: DataSender,
-            _sub_type: SubscribeType,
+            _desc: SubscribeDesc,
         ) -> Result<(), StreamHubError> {
             Ok(())
         }
@@ -1194,7 +1194,11 @@ mod tests {
             },
             info: PublisherInfo {
                 id: Uuid::new(RandomDigitCount::Zero),
-                pub_type: PublishType::RtmpPush,
+                desc: PublishDesc {
+                    op: StreamOp::Push,
+                    from: ProtocolId::Rtmp,
+                    to: None,
+                },
                 pub_data_type: PubDataType::Frame,
                 notify_info: NotifyInfo {
                     request_url: String::new(),
@@ -1231,7 +1235,11 @@ mod tests {
             },
             info: PublisherInfo {
                 id: Uuid::new(RandomDigitCount::Zero),
-                pub_type: PublishType::RtspPush,
+                desc: PublishDesc {
+                    op: StreamOp::Push,
+                    from: ProtocolId::Rtsp,
+                    to: None,
+                },
                 pub_data_type: PubDataType::Frame,
                 notify_info: NotifyInfo {
                     request_url: String::new(),

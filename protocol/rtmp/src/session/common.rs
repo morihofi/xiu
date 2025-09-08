@@ -26,8 +26,9 @@ use {
     streamhub::{
         define::{
             FrameData, FrameDataReceiver, FrameDataSender, Information, InformationSender,
-            NotifyInfo, PacketData, PacketDataSender, PublishType, PublisherInfo,
-            StreamHubEvent, StreamHubEventSender, SubscribeType, SubscriberInfo, TStreamHandler,
+            NotifyInfo, PacketData, PacketDataSender, PublishDesc, PublisherInfo, StreamHubEvent,
+            StreamHubEventSender, SubscribeDesc, SubscriberInfo, TStreamHandler, ProtocolId,
+            StreamOp,
         },
         errors::{StreamHubError, StreamHubErrorValue},
         statistics::StatisticsStream,
@@ -318,16 +319,24 @@ impl Common {
             String::from("unknown")
         };
 
-        let sub_type = match self.session_type {
-            SessionType::Client => SubscribeType::RtmpRelay,
-            SessionType::Server => SubscribeType::RtmpPull,
+        let desc = match self.session_type {
+            SessionType::Client => SubscribeDesc {
+                op: StreamOp::Relay,
+                from: ProtocolId::Rtmp,
+                to: Some(ProtocolId::Rtmp),
+            },
+            SessionType::Server => SubscribeDesc {
+                op: StreamOp::Pull,
+                from: ProtocolId::Rtmp,
+                to: None,
+            },
         };
 
         SubscriberInfo {
             id: self.session_id,
             /*rtmp local client subscribe from local rtmp session
             and publish(relay) the rtmp steam to remote RTMP server*/
-            sub_type,
+            desc,
             sub_data_type: streamhub::define::SubDataType::Frame,
             notify_info: NotifyInfo {
                 request_url: self.request_url.clone(),
@@ -343,14 +352,22 @@ impl Common {
             String::from("unknown")
         };
 
-        let pub_type = match self.session_type {
-            SessionType::Client => PublishType::RtmpRelay,
-            SessionType::Server => PublishType::RtmpPush,
+        let desc = match self.session_type {
+            SessionType::Client => PublishDesc {
+                op: StreamOp::Relay,
+                from: ProtocolId::Rtmp,
+                to: Some(ProtocolId::Rtmp),
+            },
+            SessionType::Server => PublishDesc {
+                op: StreamOp::Push,
+                from: ProtocolId::Rtmp,
+                to: None,
+            },
         };
 
         PublisherInfo {
             id: self.session_id,
-            pub_type,
+            desc,
             pub_data_type: streamhub::define::PubDataType::Both,
             notify_info: NotifyInfo {
                 request_url: self.request_url.clone(),
@@ -402,7 +419,11 @@ impl Common {
                 id: self.session_id,
                 remote_addr: self.remote_addr.unwrap().to_string(),
                 start_time: chrono::Local::now(),
-                sub_type: SubscribeType::RtmpPull,
+                desc: SubscribeDesc {
+                    op: StreamOp::Pull,
+                    from: ProtocolId::Rtmp,
+                    to: None,
+                },
             };
             if let Err(err) = sender.send(statistic_subscriber) {
                 log::error!("send statistic_subscriber err: {}", err);
@@ -613,7 +634,7 @@ impl TStreamHandler for RtmpStreamHandler {
     async fn send_prior_data(
         &self,
         data_sender: DataSender,
-        sub_type: SubscribeType,
+        desc: SubscribeDesc,
     ) -> Result<(), StreamHubError> {
         let mut cache_lock = self.cache.lock().await;
         let Some(cache) = cache_lock.as_mut() else {
@@ -640,25 +661,25 @@ impl TStreamHandler for RtmpStreamHandler {
                         .send(video_seq_data)
                         .map_err(|_| StreamHubError { value: StreamHubErrorValue::SendError })?;
                 }
-                match sub_type {
-                    SubscribeType::RtmpPull
-                    | SubscribeType::RtspPull
-                    | SubscribeType::RtmpRemux2HttpFlv
-                    | SubscribeType::RtmpRemux2Hls => {
-                        if let Some(gops_data) = cache.get_gops_data() {
-                            if let Some(gop) = gops_data.back() {
-                                for channel_data in gop.clone().get_frame_data() {
-                                    sender
-                                        .send(channel_data)
-                                        .map_err(|_| StreamHubError {
-                                            value: StreamHubErrorValue::SendError,
-                                        })?;
-                                }
+                if matches!(
+                    (desc.op, &desc.from, &desc.to),
+                    (StreamOp::Pull, ProtocolId::Rtmp, _)
+                        | (StreamOp::Pull, ProtocolId::Rtsp, _)
+                        | (StreamOp::Remux, ProtocolId::Rtmp, Some(ProtocolId::HttpFlv))
+                        | (StreamOp::Remux, ProtocolId::Rtmp, Some(ProtocolId::Hls))
+                ) {
+                    if let Some(gops_data) = cache.get_gops_data() {
+                        if let Some(gop) = gops_data.back() {
+                            for channel_data in gop.clone().get_frame_data() {
+                                sender
+                                    .send(channel_data)
+                                    .map_err(|_| StreamHubError {
+                                        value: StreamHubErrorValue::SendError,
+                                    })?;
                             }
-                            cache.clear_gops();
                         }
+                        cache.clear_gops();
                     }
-                    _ => {}
                 }
             }
             DataSender::Packet { sender } => {
@@ -960,7 +981,14 @@ mod tests {
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         handler
-            .send_prior_data(DataSender::Packet { sender: tx }, SubscribeType::RtspPull)
+            .send_prior_data(
+                DataSender::Packet { sender: tx },
+                SubscribeDesc {
+                    op: StreamOp::Pull,
+                    from: ProtocolId::Rtsp,
+                    to: None,
+                },
+            )
             .await
             .unwrap();
 
@@ -1017,7 +1045,14 @@ mod tests {
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         handler
-            .send_prior_data(DataSender::Frame { sender: tx }, SubscribeType::RtmpPull)
+            .send_prior_data(
+                DataSender::Frame { sender: tx },
+                SubscribeDesc {
+                    op: StreamOp::Pull,
+                    from: ProtocolId::Rtmp,
+                    to: None,
+                },
+            )
             .await
             .unwrap();
 

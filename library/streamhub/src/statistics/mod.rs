@@ -1,6 +1,6 @@
 use {
     super::stream::StreamIdentifier,
-    crate::{define::SubscribeType, utils::Uuid},
+    crate::{define::SubscribeDesc, utils::Uuid},
     chrono::{DateTime, Local},
     serde::Serialize,
     std::{collections::HashMap, sync::Arc, time::Duration},
@@ -86,7 +86,7 @@ pub struct StatisticSubscriber {
     pub id: Uuid,
     pub start_time: DateTime<Local>,
     pub remote_address: String,
-    pub sub_type: SubscribeType,
+    pub desc: SubscribeDesc,
     /*used for caculate the send_bitrate*/
     #[serde(skip_serializing)]
     pub send_bytes: usize,

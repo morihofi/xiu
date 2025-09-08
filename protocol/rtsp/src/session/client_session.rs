@@ -49,8 +49,8 @@ use super::define::USER_AGENT;
 
 use streamhub::{
     define::{
-        FrameData, NotifyInfo, PublishType, PublisherInfo, StreamHubEvent, StreamHubEventSender,
-        SubscribeType,
+        FrameData, NotifyInfo, PublishDesc, PublisherInfo, StreamHubEvent, StreamHubEventSender,
+        SubscribeDesc, ProtocolId, StreamOp,
     },
     stream::StreamIdentifier,
     utils::{RandomDigitCount, Uuid},
@@ -363,7 +363,11 @@ impl RtspClientSession {
 
         SubscriberInfo {
             id,
-            sub_type: SubscribeType::RtspRelay,
+            desc: SubscribeDesc {
+                op: StreamOp::Relay,
+                from: ProtocolId::Rtsp,
+                to: Some(ProtocolId::Rtsp),
+            },
             sub_data_type: streamhub::define::SubDataType::Frame,
             notify_info: NotifyInfo {
                 request_url: String::from(""),
@@ -381,7 +385,11 @@ impl RtspClientSession {
 
         PublisherInfo {
             id,
-            pub_type: PublishType::RtspRelay,
+            desc: PublishDesc {
+                op: StreamOp::Relay,
+                from: ProtocolId::Rtsp,
+                to: Some(ProtocolId::Rtsp),
+            },
             pub_data_type: streamhub::define::PubDataType::Frame,
             notify_info: NotifyInfo {
                 request_url: String::from(""),

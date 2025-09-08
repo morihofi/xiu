@@ -20,50 +20,40 @@ use {
     utils::Uuid,
 };
 
-/* Subscribe streams from stream hub */
+/* Protocol identifiers used for stream operations */
 #[derive(Debug, Serialize, Clone, Eq, PartialEq)]
-pub enum SubscribeType {
-    /* Remote client request pulling(play) a rtmp stream.*/
-    RtmpPull,
-    /* Remote request to play httpflv triggers remux from RTMP to httpflv. */
-    RtmpRemux2HttpFlv,
-    /* The publishing of RTMP stream triggers remuxing from RTMP to HLS protocol.(NOTICE:It is not triggerred by players.)*/
-    RtmpRemux2Hls,
-    /* Relay(Push) local RTMP stream from stream hub to other RTMP nodes.*/
-    RtmpRelay,
-    /* Remote client request pulling(play) a rtsp stream.*/
-    RtspPull,
-    /* The publishing of RTSP stream triggers remuxing from RTSP to RTMP protocol.*/
-    RtspRemux2Rtmp,
-    /* Relay(Push) local RTSP stream to other RTSP nodes.*/
-    RtspRelay,
-    /* Remote client request pulling(play) stream through whep.*/
-    WhepPull,
-    /* Remuxing webrtc stream to RTMP */
-    WebRTCRemux2Rtmp,
-    /* Relay(Push) the local webRTC stream to other nodes using Whip.*/
-    WhipRelay,
-    /* Pull rtp stream by subscribing from stream hub.*/
-    RtpPull,
+pub enum ProtocolId {
+    Rtmp,
+    Rtsp,
+    WebRtc,
+    HttpFlv,
+    Hls,
+    Rtp,
 }
 
-/* Publish streams to stream hub */
+/* Stream operation type */
 #[derive(Debug, Serialize, Clone, Eq, PartialEq)]
-pub enum PublishType {
-    /* Receive rtmp stream from remote push client. */
-    RtmpPush,
-    /* Relay(Pull) remote RTMP stream to local stream hub. */
-    RtmpRelay,
-    /* Receive rtsp stream from remote push client */
-    RtspPush,
-    /* Relay(Pull) remote RTSP stream to local stream hub. */
-    RtspRelay,
-    /* Receive whip stream from remote push client. */
-    WhipPush,
-    /* Relay(Pull) remote WebRTC stream to local stream hub using Whep. */
-    WhepRelay,
-    /* It used for publishing raw rtp data of rtsp/whbrtc(whip) */
-    RtpPush,
+pub enum StreamOp {
+    Pull,
+    Push,
+    Relay,
+    Remux,
+}
+
+/* Describe a subscription to the stream hub */
+#[derive(Debug, Serialize, Clone, Eq, PartialEq)]
+pub struct SubscribeDesc {
+    pub op: StreamOp,
+    pub from: ProtocolId,
+    pub to: Option<ProtocolId>,
+}
+
+/* Describe a publishing action to the stream hub */
+#[derive(Debug, Serialize, Clone, Eq, PartialEq)]
+pub struct PublishDesc {
+    pub op: StreamOp,
+    pub from: ProtocolId,
+    pub to: Option<ProtocolId>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -75,7 +65,7 @@ pub struct NotifyInfo {
 #[derive(Debug, Clone)]
 pub struct SubscriberInfo {
     pub id: Uuid,
-    pub sub_type: SubscribeType,
+    pub desc: SubscribeDesc,
     pub notify_info: NotifyInfo,
     pub sub_data_type: SubDataType,
 }
@@ -89,7 +79,7 @@ impl Serialize for SubscriberInfo {
         let mut state = serializer.serialize_struct("SubscriberInfo", 3)?;
 
         state.serialize_field("id", &self.id.to_string())?;
-        state.serialize_field("sub_type", &self.sub_type)?;
+        state.serialize_field("desc", &self.desc)?;
         state.serialize_field("notify_info", &self.notify_info)?;
         state.end()
     }
@@ -98,7 +88,7 @@ impl Serialize for SubscriberInfo {
 #[derive(Debug, Clone)]
 pub struct PublisherInfo {
     pub id: Uuid,
-    pub pub_type: PublishType,
+    pub desc: PublishDesc,
     pub pub_data_type: PubDataType,
     pub notify_info: NotifyInfo,
 }
@@ -112,7 +102,7 @@ impl Serialize for PublisherInfo {
         let mut state = serializer.serialize_struct("PublisherInfo", 3)?;
 
         state.serialize_field("id", &self.id.to_string())?;
-        state.serialize_field("pub_type", &self.pub_type)?;
+        state.serialize_field("desc", &self.desc)?;
         state.serialize_field("notify_info", &self.notify_info)?;
         state.end()
     }
@@ -218,7 +208,7 @@ pub trait TStreamHandler: Send + Sync {
     async fn send_prior_data(
         &self,
         sender: DataSender,
-        sub_type: SubscribeType,
+        desc: SubscribeDesc,
     ) -> Result<(), StreamHubError>;
     async fn get_statistic_data(&self) -> Option<StatisticsStream>;
     async fn send_information(&self, sender: InformationSender);
@@ -451,7 +441,7 @@ pub enum StatisticData {
     Subscriber {
         id: Uuid,
         remote_addr: String,
-        sub_type: SubscribeType,
+        desc: SubscribeDesc,
         start_time: DateTime<Local>,
     },
 }

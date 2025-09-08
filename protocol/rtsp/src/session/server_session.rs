@@ -54,8 +54,8 @@ use commonlib::auth::Auth;
 use streamhub::{
     define::{
         FrameData, Information, InformationSender, MediaPacket, NotifyInfo, PacketData,
-        PublishType, PublisherInfo, StreamHubEvent, StreamHubEventSender, SubscribeType,
-        SubscriberInfo, TStreamHandler,
+        PublishDesc, PublisherInfo, StreamHubEvent, StreamHubEventSender, SubscribeDesc,
+        SubscriberInfo, TStreamHandler, ProtocolId, StreamOp,
     },
     errors::{StreamHubError, StreamHubErrorValue},
     statistics::StatisticsStream,
@@ -878,7 +878,11 @@ impl RtspServerSession {
 
         SubscriberInfo {
             id,
-            sub_type: SubscribeType::RtspPull,
+            desc: SubscribeDesc {
+                op: StreamOp::Pull,
+                from: ProtocolId::Rtsp,
+                to: None,
+            },
             sub_data_type: streamhub::define::SubDataType::Packet,
             notify_info: NotifyInfo {
                 request_url: String::from(""),
@@ -896,7 +900,11 @@ impl RtspServerSession {
 
         PublisherInfo {
             id,
-            pub_type: PublishType::RtspPush,
+            desc: PublishDesc {
+                op: StreamOp::Push,
+                from: ProtocolId::Rtsp,
+                to: None,
+            },
             pub_data_type: streamhub::define::PubDataType::Frame,
             notify_info: NotifyInfo {
                 request_url: String::from(""),
@@ -934,7 +942,7 @@ impl TStreamHandler for RtspStreamHandler {
     async fn send_prior_data(
         &self,
         data_sender: DataSender,
-        sub_type: SubscribeType,
+        desc: SubscribeDesc,
     ) -> Result<(), StreamHubError> {
         let sender = match data_sender {
             DataSender::Frame { sender } => sender,
@@ -944,8 +952,8 @@ impl TStreamHandler for RtspStreamHandler {
                 });
             }
         };
-        match sub_type {
-            SubscribeType::RtspRemux2Rtmp => {
+        match (desc.op, desc.from, desc.to) {
+            (StreamOp::Remux, ProtocolId::Rtsp, Some(ProtocolId::Rtmp)) => {
                 let sdp_info = self.sdp.lock().await;
                 let mut video_clock_rate: u32 = 0;
                 let mut audio_clock_rate: u32 = 0;
@@ -1016,7 +1024,7 @@ impl TStreamHandler for RtspStreamHandler {
                     log::error!("send media info error: {}", err);
                 }
             }
-            SubscribeType::RtmpRemux2Hls => {}
+            (StreamOp::Remux, ProtocolId::Rtmp, Some(ProtocolId::Hls)) => {}
             _ => {}
         }
 

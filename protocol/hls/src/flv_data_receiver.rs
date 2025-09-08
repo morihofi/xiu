@@ -9,7 +9,7 @@ use {
     streamhub::{
         define::{
             FrameData, FrameDataReceiver, NotifyInfo, StreamHubEvent, StreamHubEventSender,
-            SubscribeType, SubscriberInfo,
+            SubscribeDesc, SubscriberInfo, ProtocolId, StreamOp,
         },
         stream::StreamIdentifier,
         utils::{RandomDigitCount, Uuid},
@@ -107,7 +107,11 @@ impl FlvDataReceiver {
         /*the sub info is only used to transfer from RTMP to HLS, but not for client player */
         let sub_info = SubscriberInfo {
             id: self.subscriber_id,
-            sub_type: SubscribeType::RtmpRemux2Hls,
+            desc: SubscribeDesc {
+                op: StreamOp::Remux,
+                from: ProtocolId::Rtmp,
+                to: Some(ProtocolId::Hls),
+            },
             sub_data_type: streamhub::define::SubDataType::Frame,
             notify_info: NotifyInfo {
                 request_url: String::from(""),
@@ -145,7 +149,11 @@ impl FlvDataReceiver {
     pub async fn unsubscribe_from_stream_hub(&mut self) -> Result<(), HlsError> {
         let sub_info = SubscriberInfo {
             id: self.subscriber_id,
-            sub_type: SubscribeType::RtmpRemux2Hls,
+            desc: SubscribeDesc {
+                op: StreamOp::Remux,
+                from: ProtocolId::Rtmp,
+                to: Some(ProtocolId::Hls),
+            },
             sub_data_type: streamhub::define::SubDataType::Frame,
             notify_info: NotifyInfo {
                 request_url: String::from(""),

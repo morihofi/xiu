@@ -1,8 +1,8 @@
 pub mod errors;
 use streamhub::{
     define::{
-        DataSender, InformationSender, NotifyInfo, PublishType, PublisherInfo, StreamHubEvent,
-        StreamHubEventSender, SubscribeType, SubscriberInfo, TStreamHandler,
+        DataSender, InformationSender, NotifyInfo, PublishDesc, PublisherInfo, StreamHubEvent,
+        StreamHubEventSender, SubscribeDesc, SubscriberInfo, TStreamHandler, ProtocolId, StreamOp,
     },
     errors::StreamHubError,
     statistics::StatisticsStream,
@@ -488,7 +488,11 @@ impl WebRTCServerSession {
 
         SubscriberInfo {
             id,
-            sub_type: SubscribeType::WhepPull,
+            desc: SubscribeDesc {
+                op: StreamOp::Pull,
+                from: ProtocolId::WebRtc,
+                to: None,
+            },
             sub_data_type: streamhub::define::SubDataType::Packet,
             notify_info: NotifyInfo {
                 request_url: String::from(""),
@@ -506,7 +510,11 @@ impl WebRTCServerSession {
 
         PublisherInfo {
             id,
-            pub_type: PublishType::WhipPush,
+            desc: PublishDesc {
+                op: StreamOp::Push,
+                from: ProtocolId::WebRtc,
+                to: None,
+            },
             pub_data_type: streamhub::define::PubDataType::Both,
             notify_info: NotifyInfo {
                 request_url: String::from(""),
@@ -587,7 +595,7 @@ impl TStreamHandler for WebRTCStreamHandler {
     async fn send_prior_data(
         &self,
         _data_sender: DataSender,
-        _sub_type: SubscribeType,
+        _desc: SubscribeDesc,
     ) -> Result<(), StreamHubError> {
         Ok(())
     }

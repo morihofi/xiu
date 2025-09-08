@@ -9,7 +9,7 @@ use {
     std::net::SocketAddr,
     streamhub::define::{
         FrameData, FrameDataReceiver, NotifyInfo, StreamHubEvent, StreamHubEventSender,
-        SubDataType, SubscribeType, SubscriberInfo,
+        SubDataType, SubscribeDesc, SubscriberInfo, ProtocolId, StreamOp,
     },
     streamhub::{
         stream::StreamIdentifier,
@@ -221,7 +221,11 @@ impl HttpFlv {
     pub async fn unsubscribe_from_stream_hub(&mut self) -> Result<(), HttpFLvError> {
         let sub_info = SubscriberInfo {
             id: self.subscriber_id,
-            sub_type: SubscribeType::RtmpRemux2HttpFlv,
+            desc: SubscribeDesc {
+                op: StreamOp::Remux,
+                from: ProtocolId::Rtmp,
+                to: Some(ProtocolId::HttpFlv),
+            },
             sub_data_type: SubDataType::Frame,
             notify_info: NotifyInfo {
                 request_url: self.request_url.clone(),
@@ -248,7 +252,11 @@ impl HttpFlv {
     pub async fn subscribe_from_stream_hub(&mut self) -> Result<(), HttpFLvError> {
         let sub_info = SubscriberInfo {
             id: self.subscriber_id,
-            sub_type: SubscribeType::RtmpRemux2HttpFlv,
+            desc: SubscribeDesc {
+                op: StreamOp::Remux,
+                from: ProtocolId::Rtmp,
+                to: Some(ProtocolId::HttpFlv),
+            },
             sub_data_type: SubDataType::Frame,
             notify_info: NotifyInfo {
                 request_url: self.request_url.clone(),
@@ -286,7 +294,11 @@ impl HttpFlv {
                 id: self.subscriber_id,
                 remote_addr: self.remote_addr.to_string(),
                 start_time: chrono::Local::now(),
-                sub_type: SubscribeType::RtmpRemux2HttpFlv,
+                desc: SubscribeDesc {
+                    op: StreamOp::Remux,
+                    from: ProtocolId::Rtmp,
+                    to: Some(ProtocolId::HttpFlv),
+                },
             };
             if let Err(err) = sender.send(statistic_subscriber) {
                 log::error!("send statistic_subscriber err: {}", err);

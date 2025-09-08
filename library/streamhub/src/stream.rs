@@ -57,8 +57,14 @@ impl fmt::Display for StreamIdentifier {
 impl StreamIdentifier {
     pub fn to_key(&self) -> Option<StreamKey> {
         match self {
-            StreamIdentifier::Rtmp { app_name, stream_name }
-            | StreamIdentifier::WebRTC { app_name, stream_name } => Some(StreamKey {
+            StreamIdentifier::Rtmp {
+                app_name,
+                stream_name,
+            }
+            | StreamIdentifier::WebRTC {
+                app_name,
+                stream_name,
+            } => Some(StreamKey {
                 app_name: app_name.clone(),
                 stream_name: stream_name.clone(),
             }),

@@ -1,10 +1,7 @@
 use crate::config::{AuthConfig, AuthSecretConfig};
 use commonlib::auth::AuthType;
 use std::sync::Arc;
-use xrtsp::{
-    relay::pull_client_manager::RtspPullClientManager,
-    rtsp::RtspServer,
-};
+use xrtsp::{relay::pull_client_manager::RtspPullClientManager, rtsp::RtspServer};
 
 use {
     super::api,

@@ -8,8 +8,8 @@ use {
     std::time::Duration,
     streamhub::{
         define::{
-            FrameData, FrameDataReceiver, NotifyInfo, StreamHubEvent, StreamHubEventSender,
-            SubscribeDesc, SubscriberInfo, ProtocolId, StreamOp,
+            FrameData, FrameDataReceiver, NotifyInfo, ProtocolId, StreamHubEvent,
+            StreamHubEventSender, StreamOp, SubscribeDesc, SubscriberInfo,
         },
         stream::StreamIdentifier,
         utils::{RandomDigitCount, Uuid},

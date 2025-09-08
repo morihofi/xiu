@@ -132,8 +132,8 @@ impl ClientSession {
             gop_num,
         }
     }
-    
-    pub fn set_timeout(&mut self, timeout: Duration){
+
+    pub fn set_timeout(&mut self, timeout: Duration) {
         self.timeout = Some(timeout)
     }
 

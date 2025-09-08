@@ -119,7 +119,6 @@ impl fmt::Display for Uuid {
 
 #[cfg(test)]
 mod tests {
-    
 
     use super::Uuid;
 

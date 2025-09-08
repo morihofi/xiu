@@ -2,7 +2,7 @@ use {
     super::errors::ClientError,
     crate::session::client_session::{ClientSession, ClientSessionType},
     streamhub::{
-        define::{StreamHubEventSender, BroadcastEvent, BroadcastEventReceiver},
+        define::{BroadcastEvent, BroadcastEventReceiver, StreamHubEventSender},
         stream::StreamIdentifier,
     },
     tokio::net::TcpStream,

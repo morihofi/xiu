@@ -26,9 +26,9 @@ use {
     streamhub::{
         define::{
             FrameData, FrameDataReceiver, FrameDataSender, Information, InformationSender,
-            NotifyInfo, PacketData, PacketDataSender, PublishDesc, PublisherInfo, StreamHubEvent,
-            StreamHubEventSender, SubscribeDesc, SubscriberInfo, TStreamHandler, ProtocolId,
-            StreamOp,
+            NotifyInfo, PacketData, PacketDataSender, ProtocolId, PublishDesc, PublisherInfo,
+            StreamHubEvent, StreamHubEventSender, StreamOp, SubscribeDesc, SubscriberInfo,
+            TStreamHandler,
         },
         errors::{StreamHubError, StreamHubErrorValue},
         statistics::StatisticsStream,
@@ -249,7 +249,9 @@ impl Common {
             }
         }
 
-        self.stream_handler.save_video_data(data, *timestamp).await?;
+        self.stream_handler
+            .save_video_data(data, *timestamp)
+            .await?;
 
         Ok(())
     }
@@ -283,7 +285,9 @@ impl Common {
             }
         }
 
-        self.stream_handler.save_audio_data(data, *timestamp).await?;
+        self.stream_handler
+            .save_audio_data(data, *timestamp)
+            .await?;
 
         Ok(())
     }
@@ -645,21 +649,21 @@ impl TStreamHandler for RtmpStreamHandler {
             DataSender::Frame { sender } => {
                 if let Some(meta_body_data) = cache.get_metadata() {
                     log::info!("send_prior_data: meta_body_data: ");
-                    sender
-                        .send(meta_body_data)
-                        .map_err(|_| StreamHubError { value: StreamHubErrorValue::SendError })?;
+                    sender.send(meta_body_data).map_err(|_| StreamHubError {
+                        value: StreamHubErrorValue::SendError,
+                    })?;
                 }
                 if let Some(audio_seq_data) = cache.get_audio_seq() {
                     log::info!("send_prior_data: audio_seq_data: ",);
-                    sender
-                        .send(audio_seq_data)
-                        .map_err(|_| StreamHubError { value: StreamHubErrorValue::SendError })?;
+                    sender.send(audio_seq_data).map_err(|_| StreamHubError {
+                        value: StreamHubErrorValue::SendError,
+                    })?;
                 }
                 if let Some(video_seq_data) = cache.get_video_seq() {
                     log::info!("send_prior_data: video_seq_data:");
-                    sender
-                        .send(video_seq_data)
-                        .map_err(|_| StreamHubError { value: StreamHubErrorValue::SendError })?;
+                    sender.send(video_seq_data).map_err(|_| StreamHubError {
+                        value: StreamHubErrorValue::SendError,
+                    })?;
                 }
                 if matches!(
                     (desc.op, &desc.from, &desc.to),
@@ -671,11 +675,9 @@ impl TStreamHandler for RtmpStreamHandler {
                     if let Some(gops_data) = cache.get_gops_data() {
                         if let Some(gop) = gops_data.back() {
                             for channel_data in gop.clone().get_frame_data() {
-                                sender
-                                    .send(channel_data)
-                                    .map_err(|_| StreamHubError {
-                                        value: StreamHubErrorValue::SendError,
-                                    })?;
+                                sender.send(channel_data).map_err(|_| StreamHubError {
+                                    value: StreamHubErrorValue::SendError,
+                                })?;
                             }
                         }
                         cache.clear_gops();
@@ -687,9 +689,7 @@ impl TStreamHandler for RtmpStreamHandler {
                     let mut reader = BytesReader::new(data.clone());
                     if let Ok(tag) = VideoTagHeader::unmarshal(&mut reader) {
                         let remain = reader.extract_remaining_bytes();
-                        if let define::AvcCodecId::H264 =
-                            define::u8_2_avc_codec_id(tag.codec_id)
-                        {
+                        if let define::AvcCodecId::H264 = define::u8_2_avc_codec_id(tag.codec_id) {
                             let mut r = BytesReader::new(remain);
                             let _ = r.read_u8(); // configurationVersion
                             let _ = r.read_u8(); // profile
@@ -962,11 +962,13 @@ mod tests {
 
             let audio_seq = BytesMut::from(&[0xAF, 0x00, 0x12, 0x10][..]);
             cache.save_audio_data(&audio_seq, 0).await.unwrap();
-            let video_seq = BytesMut::from(&[
-                0x17, 0x00, 0x00, 0x00, 0x00, 0x01, 0x64, 0x00, 0x1E, 0xFF, 0xE1, 0x00, 0x07,
-                0x67, 0x42, 0x00, 0x1E, 0x8D, 0x68, 0x40, 0x01, 0x00, 0x04, 0x68, 0xCE, 0x06,
-                0xE2,
-            ][..]);
+            let video_seq = BytesMut::from(
+                &[
+                    0x17, 0x00, 0x00, 0x00, 0x00, 0x01, 0x64, 0x00, 0x1E, 0xFF, 0xE1, 0x00, 0x07,
+                    0x67, 0x42, 0x00, 0x1E, 0x8D, 0x68, 0x40, 0x01, 0x00, 0x04, 0x68, 0xCE, 0x06,
+                    0xE2,
+                ][..],
+            );
             cache.save_video_data(&video_seq, 0).await.unwrap();
 
             let mut video = BytesMut::new();

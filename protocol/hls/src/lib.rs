@@ -1,3 +1,4 @@
+pub mod adapter;
 pub mod define;
 pub mod errors;
 pub mod flv2hls;
@@ -7,7 +8,6 @@ pub mod remuxer;
 pub mod server;
 mod test_flv2hls;
 pub mod ts;
-pub mod adapter;
 pub mod writer;
 
 pub fn init(enabled: bool) {

@@ -37,11 +37,7 @@ async fn handle_connection(
 
             if let Some(auth_val) = auth {
                 if auth_val
-                    .authenticate(
-                        &stream_name,
-                        &query_string.map(SecretCarrier::Query),
-                        true,
-                    )
+                    .authenticate(&stream_name, &query_string.map(SecretCarrier::Query), true)
                     .is_err()
                 {
                     return Response::builder()

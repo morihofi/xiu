@@ -1,8 +1,9 @@
 pub mod errors;
 use streamhub::{
     define::{
-        DataSender, InformationSender, NotifyInfo, PublishDesc, PublisherInfo, StreamHubEvent,
-        StreamHubEventSender, SubscribeDesc, SubscriberInfo, TStreamHandler, ProtocolId, StreamOp,
+        DataSender, InformationSender, NotifyInfo, ProtocolId, PublishDesc, PublisherInfo,
+        StreamHubEvent, StreamHubEventSender, StreamOp, SubscribeDesc, SubscriberInfo,
+        TStreamHandler,
     },
     errors::StreamHubError,
     statistics::StatisticsStream,

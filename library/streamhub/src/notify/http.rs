@@ -1,7 +1,7 @@
+use crate::define::StreamHubEventMessage;
 use crate::notify::Notifier;
-use reqwest::Client;
 use async_trait::async_trait;
-use crate::define::{StreamHubEventMessage};
+use reqwest::Client;
 
 macro_rules! serialize_event {
     ($message:expr) => {{
@@ -15,7 +15,6 @@ macro_rules! serialize_event {
         event_serialize_str
     }};
 }
-
 
 pub struct HttpNotifier {
     request_client: Client,

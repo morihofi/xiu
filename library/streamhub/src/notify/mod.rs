@@ -1,7 +1,7 @@
 pub mod http;
 
+use crate::define::StreamHubEventMessage;
 use async_trait::async_trait;
-use crate::define::{StreamHubEventMessage};
 
 #[async_trait]
 pub trait Notifier: Sync + Send {

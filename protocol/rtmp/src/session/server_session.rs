@@ -783,7 +783,8 @@ impl Drop for ServerSession {
         if !self.app_name.is_empty() && !self.stream_name.is_empty() {
             // Prevent a streamname is locked but no one is sending data because of lost connection
             // this ensures a safely reconnect
-            self.common.unpublish_to_stream_hub_on_drop(self.app_name.clone(), self.stream_name.clone());
+            self.common
+                .unpublish_to_stream_hub_on_drop(self.app_name.clone(), self.stream_name.clone());
         }
     }
 }

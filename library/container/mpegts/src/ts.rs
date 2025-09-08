@@ -452,7 +452,13 @@ mod tests {
 
         // First segment to advance continuity counters
         muxer
-            .write(pid, 0, 0, MPEG_FLAG_IDR_FRAME, BytesMut::from(&[0x00u8][..]))
+            .write(
+                pid,
+                0,
+                0,
+                MPEG_FLAG_IDR_FRAME,
+                BytesMut::from(&[0x00u8][..]),
+            )
             .unwrap();
         let _ = muxer.get_data();
 

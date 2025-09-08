@@ -19,23 +19,15 @@ impl EventMessagesReader {
     ) -> Result<message_define::RtmpMessageData, errors::EventMessagesError> {
         let event_type = self.reader.read_u16::<BigEndian>()?;
         match event_type {
-            define::RTMP_EVENT_SET_BUFFER_LENGTH => {
-                self.read_set_buffer_length()
-            }
+            define::RTMP_EVENT_SET_BUFFER_LENGTH => self.read_set_buffer_length(),
 
-            define::RTMP_EVENT_STREAM_BEGIN => {
-                self.read_stream_begin()
-            }
+            define::RTMP_EVENT_STREAM_BEGIN => self.read_stream_begin(),
 
-            define::RTMP_EVENT_STREAM_IS_RECORDED => {
-                self.read_stream_is_recorded()
-            }
+            define::RTMP_EVENT_STREAM_IS_RECORDED => self.read_stream_is_recorded(),
 
-            _ => {
-                Err(errors::EventMessagesError {
-                    value: errors::EventMessagesErrorValue::UnknowEventMessageType,
-                })
-            }
+            _ => Err(errors::EventMessagesError {
+                value: errors::EventMessagesErrorValue::UnknowEventMessageType,
+            }),
         }
     }
     pub fn read_set_buffer_length(
@@ -55,9 +47,7 @@ impl EventMessagesReader {
     ) -> Result<message_define::RtmpMessageData, errors::EventMessagesError> {
         let stream_id = self.reader.read_u32::<BigEndian>()?;
 
-        Ok(message_define::RtmpMessageData::StreamBegin {
-            stream_id,
-        })
+        Ok(message_define::RtmpMessageData::StreamBegin { stream_id })
     }
 
     pub fn read_stream_is_recorded(
@@ -65,8 +55,6 @@ impl EventMessagesReader {
     ) -> Result<message_define::RtmpMessageData, errors::EventMessagesError> {
         let stream_id = self.reader.read_u32::<BigEndian>()?;
 
-        Ok(message_define::RtmpMessageData::StreamIsRecorded {
-            stream_id,
-        })
+        Ok(message_define::RtmpMessageData::StreamIsRecorded { stream_id })
     }
 }

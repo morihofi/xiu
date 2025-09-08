@@ -8,8 +8,8 @@ use {
     bytes::BytesMut,
     std::net::SocketAddr,
     streamhub::define::{
-        FrameData, FrameDataReceiver, NotifyInfo, StreamHubEvent, StreamHubEventSender,
-        SubDataType, SubscribeDesc, SubscriberInfo, ProtocolId, StreamOp,
+        FrameData, FrameDataReceiver, NotifyInfo, ProtocolId, StreamHubEvent, StreamHubEventSender,
+        StreamOp, SubDataType, SubscribeDesc, SubscriberInfo,
     },
     streamhub::{
         stream::StreamIdentifier,

@@ -1,6 +1,9 @@
 use bytes::BytesMut;
 use once_cell::sync::Lazy;
-use std::{collections::HashMap, sync::{Arc, RwLock}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use crate::{define::MediaPacket, stream::StreamIdentifier};
 
@@ -29,9 +32,8 @@ pub trait ProtocolAdapter {
 pub type DynAdapter = Arc<dyn ProtocolAdapter + Send + Sync>;
 
 /// Global registry for protocol adapters.
-static ADAPTER_REGISTRY: Lazy<RwLock<HashMap<&'static str, DynAdapter>>> = Lazy::new(|| {
-    RwLock::new(HashMap::new())
-});
+static ADAPTER_REGISTRY: Lazy<RwLock<HashMap<&'static str, DynAdapter>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
 
 /// Register an adapter under a protocol name.
 pub fn register_adapter(name: &'static str, adapter: DynAdapter) {

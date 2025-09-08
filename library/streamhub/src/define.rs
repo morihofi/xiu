@@ -147,7 +147,10 @@ pub enum PacketData {
         data: BytesMut,
         is_keyframe: bool,
     },
-    Audio { timestamp: u32, data: BytesMut },
+    Audio {
+        timestamp: u32,
+        data: BytesMut,
+    },
 }
 
 //used to save data which needs to be transferred between client/server sessions

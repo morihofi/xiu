@@ -135,9 +135,7 @@ async fn handle_connection(State(state): State<AppState>, req: Request<Body>) ->
         None => return response_not_found(),
     };
 
-    if let (Some(auth_val), HlsFileType::Playlist) =
-        (state.auth.as_ref(), &hls_path.file_type)
-    {
+    if let (Some(auth_val), HlsFileType::Playlist) = (state.auth.as_ref(), &hls_path.file_type) {
         if auth_val
             .authenticate(
                 &hls_path.stream_name,

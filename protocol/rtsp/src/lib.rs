@@ -1,5 +1,6 @@
 pub mod global_trait;
 // pub mod http;
+pub mod adapter;
 pub mod relay;
 pub mod rtp;
 pub mod rtsp;
@@ -11,7 +12,6 @@ pub mod rtsp_transport;
 pub mod rtsp_utils;
 pub mod sdp;
 pub mod session;
-pub mod adapter;
 pub mod writer;
 
 pub fn init(enabled: bool) {

@@ -251,10 +251,7 @@ mod tests {
             Ok(BytesMut::new())
         }
 
-        async fn read_timeout(
-            &mut self,
-            _duration: Duration,
-        ) -> Result<BytesMut, BytesIOError> {
+        async fn read_timeout(&mut self, _duration: Duration) -> Result<BytesMut, BytesIOError> {
             Ok(BytesMut::new())
         }
 
@@ -271,8 +268,7 @@ mod tests {
             ..Default::default()
         };
         let mut channel = RtpChannel::new(codec_info);
-        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> =
-            Arc::new(Mutex::new(Box::new(DummyIO)));
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> = Arc::new(Mutex::new(Box::new(DummyIO)));
         channel.create_packer(io);
 
         let packets = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -311,8 +307,7 @@ mod tests {
             ..Default::default()
         };
         let mut channel = RtpChannel::new(codec_info);
-        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> =
-            Arc::new(Mutex::new(Box::new(DummyIO)));
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> = Arc::new(Mutex::new(Box::new(DummyIO)));
         channel.create_packer(io);
 
         let packets = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -346,8 +341,7 @@ mod tests {
             ..Default::default()
         };
         let mut channel = RtpChannel::new(codec_info);
-        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> =
-            Arc::new(Mutex::new(Box::new(DummyIO)));
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> = Arc::new(Mutex::new(Box::new(DummyIO)));
         channel.create_packer(io);
 
         let packets = Arc::new(std::sync::Mutex::new(Vec::new()));

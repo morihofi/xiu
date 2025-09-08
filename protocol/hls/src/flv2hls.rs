@@ -66,14 +66,7 @@ impl Flv2HlsRemuxer {
             video_pid,
             audio_pid,
 
-            m3u8_handler: M3u8::new(
-                duration,
-                6,
-                app_name,
-                stream_name,
-                need_record,
-                data_dir,
-            ),
+            m3u8_handler: M3u8::new(duration, 6, app_name, stream_name, need_record, data_dir),
         }
     }
 

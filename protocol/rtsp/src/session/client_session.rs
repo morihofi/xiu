@@ -49,8 +49,8 @@ use super::define::USER_AGENT;
 
 use streamhub::{
     define::{
-        FrameData, NotifyInfo, PublishDesc, PublisherInfo, StreamHubEvent, StreamHubEventSender,
-        SubscribeDesc, ProtocolId, StreamOp,
+        FrameData, NotifyInfo, ProtocolId, PublishDesc, PublisherInfo, StreamHubEvent,
+        StreamHubEventSender, StreamOp, SubscribeDesc,
     },
     stream::StreamIdentifier,
     utils::{RandomDigitCount, Uuid},
@@ -605,9 +605,7 @@ impl RtspClientSession {
         let rv = self.event_producer.send(event);
         match rv {
             Err(err) => {
-                log::error!(
-                    "session exit: send event error: {err} for event: {event_json_str}"
-                );
+                log::error!("session exit: send event error: {err} for event: {event_json_str}");
                 Err(SessionError {
                     value: SessionErrorValue::StreamHubEventSendErr,
                 })
@@ -667,10 +665,7 @@ mod tests {
             }
         }
 
-        async fn read_timeout(
-            &mut self,
-            _duration: Duration,
-        ) -> Result<BytesMut, BytesIOError> {
+        async fn read_timeout(&mut self, _duration: Duration) -> Result<BytesMut, BytesIOError> {
             self.read().await
         }
 
@@ -680,8 +675,7 @@ mod tests {
     }
 
     fn build_session(mock: MockIO) -> RtspClientSession {
-        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> =
-            Arc::new(Mutex::new(Box::new(mock)));
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> = Arc::new(Mutex::new(Box::new(mock)));
         let writer = AsyncBytesWriter::new(io.clone());
         let (event_sender, _event_receiver) = mpsc::unbounded_channel();
         RtspClientSession {
@@ -704,9 +698,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_corrupted_rtsp_response() {
-        let resp = BytesMut::from(
-            b"RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 4\r\n\r\nab".as_ref(),
-        );
+        let resp =
+            BytesMut::from(b"RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 4\r\n\r\nab".as_ref());
         let mut reads = vec![resp];
         for _ in 0..5 {
             reads.push(BytesMut::new());

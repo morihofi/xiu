@@ -261,7 +261,10 @@ impl Mpeg4AvcProcessor {
         Ok(bytes_writer.extract_current_bytes())
     }
 
-    pub fn read_nalu_size(&mut self, bytes_reader: &mut BytesReader) -> Result<u32, Mpeg4AvcHevcError> {
+    pub fn read_nalu_size(
+        &mut self,
+        bytes_reader: &mut BytesReader,
+    ) -> Result<u32, Mpeg4AvcHevcError> {
         let mut size: u32 = 0;
 
         for _ in 0..self.mpeg4_avc.nalu_length {
@@ -284,7 +287,10 @@ impl Mpeg4AvcProcessor {
         Ok(())
     }
 
-    pub fn nalus_to_mpeg4avc(&mut self, nalus: Vec<BytesMut>) -> Result<BytesMut, Mpeg4AvcHevcError> {
+    pub fn nalus_to_mpeg4avc(
+        &mut self,
+        nalus: Vec<BytesMut>,
+    ) -> Result<BytesMut, Mpeg4AvcHevcError> {
         let mut bytes_writer = BytesWriter::new();
 
         for nalu in nalus {

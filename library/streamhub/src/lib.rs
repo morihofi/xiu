@@ -24,10 +24,9 @@ use {
     crate::notify::Notifier,
     define::{
         BroadcastEvent, BroadcastEventReceiver, BroadcastEventSender, DataReceiver, DataSender,
-        FrameData, FrameDataSender, Information, StreamHubEvent, StreamHubEventReceiver,
-        StreamHubEventSender, SubscribeDesc, SubscriberInfo, TStreamHandler, TransceiverEvent,
-        ProtocolId, StreamOp,
-        TransceiverEventReceiver, TransceiverEventSender,
+        FrameData, FrameDataSender, Information, ProtocolId, StreamHubEvent,
+        StreamHubEventReceiver, StreamHubEventSender, StreamOp, SubscribeDesc, SubscriberInfo,
+        TStreamHandler, TransceiverEvent, TransceiverEventReceiver, TransceiverEventSender,
     },
     errors::{StreamHubError, StreamHubErrorValue},
     std::collections::HashMap,
@@ -385,8 +384,9 @@ impl StreamDataTransceiver {
                             info,
                             result_sender,
                         } => {
-                            if let Err(err) =
-                                stream_handler.send_prior_data(sender.clone(), info.desc.clone()).await
+                            if let Err(err) = stream_handler
+                                .send_prior_data(sender.clone(), info.desc.clone())
+                                .await
                             {
                                 log::error!("receive_event_loop send_prior_data err: {}", err);
                                 break;
@@ -1147,8 +1147,8 @@ mod tests {
     use super::*;
 
     use crate::define::{
-        Information, InformationSender, NotifyInfo, PubDataType, PublishDesc, PublisherInfo,
-        StreamHubEvent, StreamOp, ProtocolId,
+        Information, InformationSender, NotifyInfo, ProtocolId, PubDataType, PublishDesc,
+        PublisherInfo, StreamHubEvent, StreamOp,
     };
     use crate::utils::RandomDigitCount;
     use async_trait::async_trait;

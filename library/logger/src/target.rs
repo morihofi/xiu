@@ -63,8 +63,6 @@ mod tests {
         println!("{cur_number}");
     }
 
-
-
     // #[test]
     // fn test_job_scheduler_ng() {
     //     let mut sched = JobScheduler::new();

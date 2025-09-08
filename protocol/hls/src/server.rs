@@ -129,6 +129,7 @@ async fn response_file(hls_path: &HlsPath, base: &str) -> Response<Body> {
 async fn handle_connection(State(state): State<AppState>, req: Request<Body>) -> Response<Body> {
     let path = req.uri().path();
     let query_string = req.uri().query().map(|s| s.to_string());
+    log::debug!("hls request: uri={}", req.uri());
 
     let hls_path = match HlsPath::parse(path) {
         Some(p) => p,
@@ -148,6 +149,13 @@ async fn handle_connection(State(state): State<AppState>, req: Request<Body>) ->
         }
     }
 
+    log::info!(
+        "hls {}: app={} stream={} file={}",
+        match hls_path.file_type { HlsFileType::Playlist => "playlist", HlsFileType::Segment => "segment" },
+        hls_path.app_name,
+        hls_path.stream_name,
+        hls_path.file_name
+    );
     response_file(&hls_path, &state.data_dir).await
 }
 

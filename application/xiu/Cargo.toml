@@ -26,7 +26,7 @@ serde_json = { version = "1", default-features = false, features = [
 axum = "0.8.4"
 tokio-metrics = { version = "0.4.5", default-features = false }
 
-env_logger_extend = { path = "../../library/logger/" }
+env_logger_extend = { path = "../../library/logger/", features = ["serde_json"] }
 streamhub = { path = "../../library/streamhub/" }
 commonlib = { path = "../../library/common/" }
 rtmp = { path = "../../protocol/rtmp/" }

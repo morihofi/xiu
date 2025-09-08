@@ -1087,6 +1087,7 @@ dependencies = [
  "failure",
  "job_scheduler_ng",
  "log",
+ "serde_json",
 ]
 
 [[package]]
@@ -1537,7 +1538,7 @@ name = "http-server"
 version = "0.1.0"
 dependencies = [
  "axum 0.6.10",
- "env_logger",
+ "env_logger_extend",
  "log",
  "serde",
  "serde_derive",
@@ -2257,7 +2258,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "env_logger",
+ "env_logger_extend",
  "log",
  "rtmp",
  "streamhub",

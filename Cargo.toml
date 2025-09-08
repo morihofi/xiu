@@ -18,6 +18,24 @@ members = [
   "library/streamhub",
   "library/common",
 ]
+default-members = [
+  "protocol/rtmp",
+  "protocol/httpflv",
+  "protocol/hls",
+  "protocol/rtsp",
+  # Exclude protocol/webrtc from default build due to heavy native deps
+  "protocol/mpegts",
+  "library/bytesio",
+  "application/xiu",
+  "application/http-server",
+  "application/pprtmp",
+  "library/container/flv",
+  "library/container/mpegts",
+  "library/codec/h264",
+  "library/logger",
+  "library/streamhub",
+  "library/common",
+]
 
 [profile.release]
 codegen-units = 1

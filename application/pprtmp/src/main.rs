@@ -11,11 +11,11 @@ use {
     tokio::signal,
     tokio::time::Duration,
 };
+use env_logger_extend::logger::Logger;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env::set_var("RUST_LOG", "info");
-    env_logger::init();
+    let _logger = Logger::new(&"info".to_string(), None, None).expect("init logger");
 
     let mut cmd = Command::new("pprtmp")
         .bin_name("pprtmp")

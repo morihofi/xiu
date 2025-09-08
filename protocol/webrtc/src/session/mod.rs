@@ -61,6 +61,9 @@ impl WebRTCServerSession {
         event_producer: StreamHubEventSender,
         auth: Option<Auth>,
     ) -> Self {
+        if let Ok(addr) = stream.peer_addr() {
+            log::info!("webrtc server session start: remote_addr={}", addr);
+        }
         let net_io: Box<dyn TNetIO + Send + Sync> = Box::new(TcpIO::new(stream));
         let io = Arc::new(Mutex::new(net_io));
 

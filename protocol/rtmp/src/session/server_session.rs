@@ -71,7 +71,7 @@ impl ServerSession {
         auth: Option<Auth>,
     ) -> Self {
         let remote_addr = if let Ok(addr) = stream.peer_addr() {
-            log::info!("server session: {}", addr.to_string());
+            log::info!("rtmp server session start: remote_addr={}", addr.to_string());
             Some(addr)
         } else {
             None
@@ -80,7 +80,7 @@ impl ServerSession {
         let tcp_io: Box<dyn TNetIO + Send + Sync> = Box::new(TcpIO::new(stream));
         let net_io = Arc::new(Mutex::new(tcp_io));
 
-        Self {
+        let mut this = Self {
             app_name: String::from(""),
             stream_name: String::from(""),
             query: None,
@@ -100,7 +100,12 @@ impl ServerSession {
             connect_properties: ConnectProperties::default(),
             gop_num,
             auth,
-        }
+        };
+        log::debug!(
+            "rtmp session created: sid={}, state=Handshake",
+            this.common.session_id()
+        );
+        this
     }
 
     pub async fn run(&mut self) -> Result<(), SessionError> {
@@ -131,6 +136,11 @@ impl ServerSession {
             self.bytesio_data = self.io.lock().await.read().await?;
             bytes_len += self.bytesio_data.len();
             self.handshaker.extend_data(&self.bytesio_data[..]);
+            log::trace!(
+                "sid={} handshake accumulating bytes={}",
+                self.common.session_id(),
+                bytes_len
+            );
         }
 
         self.handshaker.handshake().await?;
@@ -142,6 +152,11 @@ impl ServerSession {
                 self.unpacketizer.extend_data(&left_bytes[..]);
                 self.has_remaing_data = true;
             }
+            log::debug!(
+                "sid={} handshake finished; remaining={} bytes",
+                self.common.session_id(),
+                left_bytes.len()
+            );
             log::info!("[ S->C ] [send_set_chunk_size] ");
             self.send_set_chunk_size().await?;
             return Ok(());
@@ -161,6 +176,11 @@ impl ServerSession {
             {
                 Ok(data) => {
                     self.bytesio_data = data;
+                    log::trace!(
+                        "sid={} received {} bytes",
+                        self.common.session_id(),
+                        self.bytesio_data.len()
+                    );
                 }
                 Err(err) => {
                     self.common
@@ -185,8 +205,17 @@ impl ServerSession {
                         for chunk_info in chunks {
                             let timestamp = chunk_info.message_header.timestamp;
                             let msg_stream_id = chunk_info.message_header.msg_streamd_id;
+                            log::trace!(
+                                "sid={} chunk parsed: type_id={:?} size={} ts={} stream_id={}",
+                                self.common.session_id(),
+                                chunk_info.message_header.msg_type_id,
+                                chunk_info.message_header.msg_length,
+                                timestamp,
+                                msg_stream_id
+                            );
 
                             if let Some(mut msg) = MessageParser::new(chunk_info).parse()? {
+                                log::trace!("sid={} dispatch message", self.common.session_id());
                                 self.process_messages(&mut msg, &msg_stream_id, &timestamp)
                                     .await?;
                             }
@@ -238,6 +267,12 @@ impl ServerSession {
         msg_stream_id: &u32,
         timestamp: &u32,
     ) -> Result<(), SessionError> {
+        log::debug!(
+            "sid={} handle msg stream_id={} ts={}",
+            self.common.session_id(),
+            msg_stream_id,
+            timestamp
+        );
         match rtmp_msg {
             RtmpMessageData::Amf0Command {
                 command_name,
@@ -245,6 +280,7 @@ impl ServerSession {
                 command_object,
                 others,
             } => {
+                log::trace!("sid={} -> Amf0Command", self.common.session_id());
                 self.on_amf0_command_message(
                     msg_stream_id,
                     command_name,
@@ -255,15 +291,34 @@ impl ServerSession {
                 .await?
             }
             RtmpMessageData::SetChunkSize { chunk_size } => {
+                log::trace!("sid={} -> SetChunkSize {}", self.common.session_id(), chunk_size);
                 self.on_set_chunk_size(*chunk_size as usize)?;
             }
             RtmpMessageData::AudioData { data } => {
+                log::trace!(
+                    "sid={} -> Audio len={} ts={}",
+                    self.common.session_id(),
+                    data.len(),
+                    timestamp
+                );
                 self.common.on_audio_data(data, timestamp).await?;
             }
             RtmpMessageData::VideoData { data } => {
+                log::trace!(
+                    "sid={} -> Video len={} ts={}",
+                    self.common.session_id(),
+                    data.len(),
+                    timestamp
+                );
                 self.common.on_video_data(data, timestamp).await?;
             }
             RtmpMessageData::AmfData { raw_data } => {
+                log::trace!(
+                    "sid={} -> Meta len={} ts={}",
+                    self.common.session_id(),
+                    raw_data.len(),
+                    timestamp
+                );
                 self.common.on_meta_data(raw_data, timestamp).await?;
             }
 

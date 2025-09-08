@@ -2,7 +2,7 @@ use {
     super::target::FileTarget,
     anyhow::Result,
     chrono::prelude::*,
-    env_logger::{Builder, Env, Target},
+    env_logger::{Builder, Env, Target, WriteStyle},
     job_scheduler_ng::{Job, JobScheduler, Schedule},
     std::{
         env, fs,
@@ -17,6 +17,9 @@ use {
         time::Duration,
     },
 };
+use std::io::Write as _;
+#[cfg(feature = "serde_json")]
+use serde_json::json;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Rotate {
@@ -75,8 +78,8 @@ const DEFAULT_SCHEDULER_RULE: &str = "0 * * * * *";
 fn parse_scheduler_rule(rule: &str) -> Schedule {
     rule.parse().unwrap_or_else(|err| {
         log::error!(
-                "invalid scheduler rule: {rule}, err: {err}; using default rule '{DEFAULT_SCHEDULER_RULE}'"
-            );
+            "invalid scheduler rule: {rule}, err: {err}; using default rule '{DEFAULT_SCHEDULER_RULE}'"
+        );
         DEFAULT_SCHEDULER_RULE
             .parse()
             .expect("default scheduler rule should be valid")
@@ -123,7 +126,7 @@ pub fn gen_log_file_thread_run(
                 dt.hour(),
                 dt.minute()
             );
-            log::info!("time number: {cur_number}");
+            log::debug!("log rotation tick at {cur_number}");
 
             match gen_log_file(rotate.to_owned(), path.to_owned()) {
                 Ok(file) => {
@@ -151,19 +154,74 @@ pub struct Logger {
 
 impl Logger {
     pub fn new(level: &String, rotate: Option<Rotate>, path: Option<String>) -> Result<Logger> {
+        // Respect existing RUST_LOG if set; otherwise apply provided level
+        let env = Env::default().filter_or("RUST_LOG", level);
+
+        // Common formatter: text or json driven via XIU_LOG_FORMAT env var (text|json)
+        let is_json = match env::var("XIU_LOG_FORMAT") {
+            Ok(val) => val.eq_ignore_ascii_case("json"),
+            Err(_) => false,
+        };
+
+        // Console sink when no file rotate/path specified
         if rotate.is_none() || path.is_none() {
-            env::set_var("RUST_LOG", level);
-            env_logger::init();
-            return Ok(Self {
-                ..Default::default()
-            });
+            let style = match env::var("XIU_LOG_STYLE").unwrap_or_else(|_| "auto".to_string()).as_str() {
+                "always" => WriteStyle::Always,
+                "never" => WriteStyle::Never,
+                _ => WriteStyle::Auto,
+            };
+
+            let mut builder = Builder::from_env(env);
+            builder.write_style(style);
+            if is_json {
+                builder.format(|buf, record| {
+                    let ts = buf.timestamp_millis();
+                    let thread = format!("{:?}", thread::current().id());
+                    #[cfg(feature = "serde_json")]
+                    {
+                        let payload = json!({
+                            "ts": ts.to_string(),
+                            "level": record.level().to_string(),
+                            "target": record.target(),
+                            "module": record.module_path().unwrap_or(""),
+                            "file": record.file().unwrap_or(""),
+                            "line": record.line().unwrap_or(0),
+                            "thread": thread,
+                            "msg": record.args().to_string(),
+                        });
+                        return writeln!(buf, "{}", payload.to_string());
+                    }
+                    // Fallback to text if feature is off
+                    writeln!(
+                        buf,
+                        "{ts} {} {}:{}:{} - {}",
+                        record.level(),
+                        record.module_path().unwrap_or(""),
+                        record.file().unwrap_or(""),
+                        record.line().unwrap_or(0),
+                        record.args()
+                    )
+                });
+            } else {
+                builder.format(|buf, record| {
+                    let ts = buf.timestamp_millis();
+                    let lvl = buf.default_styled_level(record.level());
+                    let thread = format!("{:?}", thread::current().id());
+                    writeln!(
+                        buf,
+                        "{ts} {lvl} [{thread}] {} {}:{} - {}",
+                        record.target(),
+                        record.file().unwrap_or(""),
+                        record.line().unwrap_or(0),
+                        record.args()
+                    )
+                });
+            }
+            builder.target(Target::Stderr).init();
+            return Ok(Self { ..Default::default() });
         }
 
-        let env = Env::default()
-            .filter_or("MY_LOG_LEVEL", level)
-            // Normally using a pipe as a target would mean a value of false, but this forces it to be true.
-            .write_style_or("MY_LOG_STYLE", "always");
-
+        // File sink with rotation
         let path_val = path.unwrap();
         let rotate_val = rotate.unwrap();
 
@@ -175,16 +233,57 @@ impl Logger {
 
         let handler = target.cur_file_handler.clone();
         let (send, receiver) = channel::<bool>();
-
         gen_log_file_thread_run(handler, rotate_val, path_val, receiver);
 
-        Builder::from_env(env)
-            .target(Target::Pipe(Box::new(target)))
-            .init();
+        let mut builder = Builder::from_env(env);
+        // Never emit ANSI escape codes to files
+        builder.write_style(WriteStyle::Never);
+        if is_json {
+            builder.format(|buf, record| {
+                let ts = buf.timestamp_millis();
+                let thread = format!("{:?}", thread::current().id());
+                #[cfg(feature = "serde_json")]
+                {
+                    let payload = json!({
+                        "ts": ts.to_string(),
+                        "level": record.level().to_string(),
+                        "target": record.target(),
+                        "module": record.module_path().unwrap_or(""),
+                        "file": record.file().unwrap_or(""),
+                        "line": record.line().unwrap_or(0),
+                        "thread": thread,
+                        "msg": record.args().to_string(),
+                    });
+                    return writeln!(buf, "{}", payload.to_string());
+                }
+                writeln!(
+                    buf,
+                    "{ts} {} {}:{}:{} - {}",
+                    record.level(),
+                    record.module_path().unwrap_or(""),
+                    record.file().unwrap_or(""),
+                    record.line().unwrap_or(0),
+                    record.args()
+                )
+            });
+        } else {
+            builder.format(|buf, record| {
+                let ts = buf.timestamp_millis();
+                let lvl = record.level();
+                let thread = format!("{:?}", thread::current().id());
+                writeln!(
+                    buf,
+                    "{ts} {lvl} [{thread}] {} {}:{} - {}",
+                    record.target(),
+                    record.file().unwrap_or(""),
+                    record.line().unwrap_or(0),
+                    record.args()
+                )
+            });
+        }
+        builder.target(Target::Pipe(Box::new(target))).init();
 
-        Ok(Self {
-            close_sender: Some(send),
-        })
+        Ok(Self { close_sender: Some(send) })
     }
     pub fn stop(&self) {
         if let Some(sender) = &self.close_sender {

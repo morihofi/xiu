@@ -26,6 +26,11 @@ async fn handle_connection(
 ) -> Response<Body> {
     let path = req.uri().path();
     let query_string: Option<String> = req.uri().query().map(|s| s.to_string());
+    log::debug!(
+        "httpflv request: remote_addr={} uri={}",
+        remote_addr,
+        req.uri()
+    );
 
     match path.find(".flv") {
         Some(index) if index > 0 => {
@@ -50,12 +55,18 @@ async fn handle_connection(
             let (http_response_data_producer, http_response_data_consumer) = unbounded();
 
             let mut flv_hanlder = HttpFlv::new(
-                app_name,
-                stream_name,
+                app_name.clone(),
+                stream_name.clone(),
                 event_producer,
                 http_response_data_producer,
                 req.uri().to_string(),
                 remote_addr,
+            );
+            log::info!(
+                "httpflv subscribe: app={} stream={} remote_addr={}",
+                app_name.clone(),
+                stream_name.clone(),
+                remote_addr
             );
 
             tokio::spawn(async move {

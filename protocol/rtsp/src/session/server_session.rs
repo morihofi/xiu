@@ -131,7 +131,7 @@ impl RtspServerSession {
         let net_io: Box<dyn TNetIO + Send + Sync> = Box::new(TcpIO::new(stream));
         let io = Arc::new(Mutex::new(net_io));
 
-        Self {
+        let this = Self {
             io: io.clone(),
             reader: BytesReader::new(BytesMut::default()),
             writer: AsyncBytesWriter::new(io),
@@ -145,7 +145,9 @@ impl RtspServerSession {
             stream_key: None,
             is_normal_exit: false,
             remote_addr,
-        }
+        };
+        log::info!("rtsp server session start: remote_addr={}", this.remote_addr);
+        this
     }
 
     fn parse_stream_key(path: &str) -> Result<StreamKey, SessionError> {
@@ -276,6 +278,17 @@ impl RtspServerSession {
             break;
         }
 
+        log::debug!(
+            "rtsp request: method={} uri={} headers={}",
+            rtsp_request.method,
+            rtsp_request.uri.marshal(),
+            rtsp_request
+                .headers
+                .iter()
+                .map(|(k, v)| format!("{k}: {v}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         match rtsp_request.method.as_str() {
             rtsp_method_name::OPTIONS => {
                 self.handle_options(&rtsp_request).await?;

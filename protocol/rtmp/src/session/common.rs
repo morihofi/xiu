@@ -98,6 +98,9 @@ impl Common {
             //cache: None,
         }
     }
+    pub fn session_id(&self) -> Uuid {
+        self.session_id
+    }
     pub async fn send_channel_data(&mut self) -> Result<(), SessionError> {
         let mut retry_times = 0;
         loop {

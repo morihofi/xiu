@@ -13,7 +13,7 @@ license = "MIT"
 [dependencies]
 anyhow = "^1.0"
 log = "0.4.0"
-env_logger = "0.10.0"
+env_logger_extend = { path = "../../library/logger/", features = ["serde_json"] }
 clap = "4.1.4"
 
 streamhub = { path = "../../library/streamhub/" }

@@ -21,13 +21,12 @@ impl io::Write for FileTarget {
         match self.cur_file_handler.lock().unwrap().write(buf) {
             Ok(rv) => Ok(rv),
             Err(err) => {
-                println!("write err {err}");
+                eprintln!("logger file write error: {err}");
                 Ok(0)
             }
         }
     }
     fn flush(&mut self) -> io::Result<()> {
-        println!("flush");
         let mut file_handler = self.cur_file_handler.lock().unwrap();
         file_handler.flush()
     }

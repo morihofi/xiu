@@ -4,12 +4,13 @@ use axum::{
 };
 
 use std::env;
+use env_logger_extend::logger::Logger;
 use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() {
-    env::set_var("RUST_LOG", "info");
-    env_logger::init();
+    // Respect RUST_LOG if provided; default to info otherwise
+    let _logger = Logger::new(&"info".to_string(), None, None).expect("init logger");
     let app = Router::new()
         .route("/", get(root))
         .route("/on_publish", post(on_publish))

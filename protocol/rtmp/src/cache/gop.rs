@@ -79,4 +79,20 @@ impl Gops {
     pub fn get_gops(&self) -> VecDeque<Gop> {
         self.gops.clone()
     }
+
+    pub fn clear(&mut self) {
+        self.gops.clear();
+        // keep an empty gop to accept upcoming frames
+        self.gops.push_back(Gop::new());
+    }
+
+    pub fn truncate(&mut self, keep: usize) {
+        if keep == 0 {
+            self.clear();
+            return;
+        }
+        while self.gops.len() > keep {
+            self.gops.pop_front();
+        }
+    }
 }

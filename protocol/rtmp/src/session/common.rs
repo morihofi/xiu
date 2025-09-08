@@ -615,8 +615,8 @@ impl TStreamHandler for RtmpStreamHandler {
         data_sender: DataSender,
         sub_type: SubscribeType,
     ) -> Result<(), StreamHubError> {
-        let cache_lock = self.cache.lock().await;
-        let Some(cache) = cache_lock.as_ref() else {
+        let mut cache_lock = self.cache.lock().await;
+        let Some(cache) = cache_lock.as_mut() else {
             return Ok(());
         };
 
@@ -646,8 +646,8 @@ impl TStreamHandler for RtmpStreamHandler {
                     | SubscribeType::RtmpRemux2HttpFlv
                     | SubscribeType::RtmpRemux2Hls => {
                         if let Some(gops_data) = cache.get_gops_data() {
-                            for gop in gops_data {
-                                for channel_data in gop.get_frame_data() {
+                            if let Some(gop) = gops_data.back() {
+                                for channel_data in gop.clone().get_frame_data() {
                                     sender
                                         .send(channel_data)
                                         .map_err(|_| StreamHubError {
@@ -655,6 +655,7 @@ impl TStreamHandler for RtmpStreamHandler {
                                         })?;
                                 }
                             }
+                            cache.clear_gops();
                         }
                     }
                     _ => {}
@@ -712,8 +713,8 @@ impl TStreamHandler for RtmpStreamHandler {
                     }
                 }
                 if let Some(gops_data) = cache.get_gops_data() {
-                    for gop in gops_data {
-                        for frame in gop.get_frame_data() {
+                    if let Some(gop) = gops_data.back() {
+                        for frame in gop.clone().get_frame_data() {
                             match frame {
                                 FrameData::Audio { timestamp, data } => {
                                     if let Some(payload) = crate::remuxer::remux_aac(&data) {
@@ -740,6 +741,7 @@ impl TStreamHandler for RtmpStreamHandler {
                             }
                         }
                     }
+                    cache.clear_gops();
                 }
             }
         }
@@ -927,6 +929,7 @@ mod tests {
     use super::*;
     use bytes::BytesMut;
     use tokio::sync::mpsc;
+    use xflv::define;
 
     #[tokio::test]
     async fn test_send_prior_packet_data() {
@@ -976,5 +979,60 @@ mod tests {
             }
         ));
         assert!(matches!(packets[1], PacketData::Audio { timestamp: 0, .. }));
+    }
+
+    fn make_video_tag(frame_type: u8) -> BytesMut {
+        use xflv::{define, flv_tag_header::VideoTagHeader, Marshal};
+        let header = VideoTagHeader {
+            frame_type,
+            codec_id: define::AvcCodecId::H264 as u8,
+            avc_packet_type: define::avc_packet_type::AVC_NALU,
+            composition_time: 0,
+        };
+        let mut data = header.marshal().unwrap();
+        data.extend_from_slice(&[0u8]);
+        data
+    }
+
+    #[tokio::test]
+    async fn test_send_prior_data_only_latest_gop() {
+        let handler = RtmpStreamHandler::new();
+        handler.set_cache(Cache::new(3, None)).await;
+        {
+            let mut cache_lock = handler.cache.lock().await;
+            let cache = cache_lock.as_mut().unwrap();
+
+            // first GOP
+            let key1 = make_video_tag(define::frame_type::KEY_FRAME);
+            cache.save_video_data(&key1, 0).await.unwrap();
+            let inter1 = make_video_tag(define::frame_type::INTER_FRAME);
+            cache.save_video_data(&inter1, 10).await.unwrap();
+
+            // second GOP (most recent)
+            let key2 = make_video_tag(define::frame_type::KEY_FRAME);
+            cache.save_video_data(&key2, 20).await.unwrap();
+            let inter2 = make_video_tag(define::frame_type::INTER_FRAME);
+            cache.save_video_data(&inter2, 30).await.unwrap();
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        handler
+            .send_prior_data(DataSender::Frame { sender: tx }, SubscribeType::RtmpPull)
+            .await
+            .unwrap();
+
+        let mut timestamps = Vec::new();
+        while let Ok(frame) = rx.try_recv() {
+            if let FrameData::Video { timestamp, .. } = frame {
+                timestamps.push(timestamp);
+            }
+        }
+
+        assert_eq!(timestamps, vec![20, 30]);
+
+        let cache_lock = handler.cache.lock().await;
+        let cache = cache_lock.as_ref().unwrap();
+        let gops_data = cache.get_gops_data().unwrap();
+        assert!(gops_data.iter().all(|g| g.len() == 0));
     }
 }

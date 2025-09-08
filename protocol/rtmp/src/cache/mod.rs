@@ -200,4 +200,12 @@ impl Cache {
             None
         }
     }
+
+    pub fn clear_gops(&mut self) {
+        self.gops.clear();
+    }
+
+    pub fn truncate_gops(&mut self, keep: usize) {
+        self.gops.truncate(keep);
+    }
 }

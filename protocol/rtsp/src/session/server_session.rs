@@ -48,6 +48,7 @@ use bytesio::bytesio::TcpIO;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use base64::Engine;
 use tokio::sync::mpsc;
 
 use commonlib::auth::Auth;
@@ -372,11 +373,87 @@ impl RtspServerSession {
             });
         }
 
-        if let Some(Information::Sdp { data }) = receiver.recv().await {
-            if let Some(sdp) = Sdp::unmarshal(&data) {
-                self.sdp = sdp;
-                //it can new tracks when get the sdp information;
-                self.new_tracks()?;
+        if let Some(info) = receiver.recv().await {
+            match info {
+                Information::Sdp { data } => {
+                    if let Some(sdp) = Sdp::unmarshal(&data) {
+                        self.sdp = sdp;
+                        self.new_tracks()?;
+                    }
+                }
+                Information::CodecConfig { video, audio } => {
+                    // Build SDP string from codec config and parse it
+                    let mut sdp = String::from("v=0\r\n");
+                    sdp.push_str("o=- 0 0 IN IP4 0.0.0.0\r\n");
+                    sdp.push_str("s=Stream\r\n");
+                    sdp.push_str("c=IN IP4 0.0.0.0\r\n");
+                    sdp.push_str("t=0 0\r\n");
+
+                    if let Some(v) = video {
+                        match v.codec {
+                            VideoCodecType::H264 => {
+                                if let (Some(sps), Some(pps)) = (v.sps, v.pps) {
+                                    let sps_b64 = base64::engine::general_purpose::STANDARD.encode(&sps[..]);
+                                    let pps_b64 = base64::engine::general_purpose::STANDARD.encode(&pps[..]);
+                                    sdp.push_str("m=video 0 RTP/AVP 96\r\n");
+                                    sdp.push_str(&format!("a=rtpmap:96 H264/{}\r\n", v.clock_rate));
+                                    sdp.push_str(&format!(
+                                        "a=fmtp:96 packetization-mode=1; sprop-parameter-sets={},{}\r\n",
+                                        sps_b64, pps_b64
+                                    ));
+                                    sdp.push_str("a=control:streamid=0\r\n");
+                                }
+                            }
+                            VideoCodecType::H265 => {
+                                let vps_b64 = v
+                                    .vps
+                                    .as_ref()
+                                    .map(|vps| base64::engine::general_purpose::STANDARD.encode(&vps[..]))
+                                    .unwrap_or_default();
+                                let sps_b64 = v
+                                    .sps
+                                    .as_ref()
+                                    .map(|sps| base64::engine::general_purpose::STANDARD.encode(&sps[..]))
+                                    .unwrap_or_default();
+                                let pps_b64 = v
+                                    .pps
+                                    .as_ref()
+                                    .map(|pps| base64::engine::general_purpose::STANDARD.encode(&pps[..]))
+                                    .unwrap_or_default();
+                                if !sps_b64.is_empty() && !pps_b64.is_empty() {
+                                    sdp.push_str("m=video 0 RTP/AVP 96\r\n");
+                                    sdp.push_str(&format!("a=rtpmap:96 H265/{}\r\n", v.clock_rate));
+                                    sdp.push_str(&format!(
+                                        "a=fmtp:96 sprop-vps={}; sprop-sps={}; sprop-pps={}\r\n",
+                                        vps_b64, sps_b64, pps_b64
+                                    ));
+                                    sdp.push_str("a=control:streamid=0\r\n");
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(a) = audio {
+                        if let Some(asc) = a.asc {
+                            let asc_hex = hex::encode(&asc[..]);
+                            sdp.push_str("m=audio 0 RTP/AVP 97\r\n");
+                            sdp.push_str(&format!(
+                                "a=rtpmap:97 MPEG4-GENERIC/{}/{}\r\n",
+                                a.clock_rate, a.channels
+                            ));
+                            sdp.push_str(&format!(
+                                "a=fmtp:97 profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3; config={}\r\n",
+                                asc_hex
+                            ));
+                            sdp.push_str("a=control:streamid=1\r\n");
+                        }
+                    }
+
+                    if let Some(parsed) = Sdp::unmarshal(&sdp) {
+                        self.sdp = parsed;
+                        self.new_tracks()?;
+                    }
+                }
             }
         }
 

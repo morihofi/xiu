@@ -17,7 +17,6 @@ use {
         messages::define::msg_type_id,
     },
     async_trait::async_trait,
-    base64::{engine::general_purpose, Engine as _},
     byteorder::BigEndian,
     bytes::BytesMut,
     bytesio::bytes_reader::BytesReader,
@@ -26,6 +25,7 @@ use {
     streamhub::{
         define::{
             FrameData, FrameDataReceiver, FrameDataSender, Information, InformationSender,
+            VideoCodecConfig, AudioCodecConfig,
             NotifyInfo, PacketData, PacketDataSender, ProtocolId, PublishDesc, PublisherInfo,
             StreamHubEvent, StreamHubEventSender, StreamOp, SubscribeDesc, SubscriberInfo,
             TStreamHandler,
@@ -670,8 +670,7 @@ impl TStreamHandler for RtmpStreamHandler {
                 }
                 if matches!(
                     (desc.op, &desc.from, &desc.to),
-                    (StreamOp::Pull, ProtocolId::Rtmp, _)
-                        | (StreamOp::Pull, ProtocolId::Rtsp, _)
+                    (StreamOp::Pull, _, _)
                         | (StreamOp::Remux, ProtocolId::Rtmp, Some(ProtocolId::HttpFlv))
                         | (StreamOp::Remux, ProtocolId::Rtmp, Some(ProtocolId::Hls))
                 ) {
@@ -789,13 +788,8 @@ impl TStreamHandler for RtmpStreamHandler {
             return;
         };
 
-        let mut sdp = String::from("v=0\r\n");
-        sdp.push_str("o=- 0 0 IN IP4 0.0.0.0\r\n");
-        sdp.push_str("s=Stream\r\n");
-        sdp.push_str("c=IN IP4 0.0.0.0\r\n");
-        sdp.push_str("t=0 0\r\n");
-
-        let mut has_media = false;
+        let mut video_cfg: Option<VideoCodecConfig> = None;
+        let mut audio_cfg: Option<AudioCodecConfig> = None;
 
         if let Some(FrameData::Video { data, .. }) = cache.get_video_seq() {
             let mut reader = BytesReader::new(data.clone());
@@ -810,78 +804,78 @@ impl TStreamHandler for RtmpStreamHandler {
                             ))
                             .is_ok()
                         {
-                            if let (Some(sps), Some(pps)) = (
-                                avc_processor.mpeg4_avc.sps.get(0),
-                                avc_processor.mpeg4_avc.pps.get(0),
-                            ) {
-                                let sps_b64 = general_purpose::STANDARD.encode(&sps.data[..]);
-                                let pps_b64 = general_purpose::STANDARD.encode(&pps.data[..]);
-                                sdp.push_str("m=video 0 RTP/AVP 96\r\n");
-                                sdp.push_str("a=rtpmap:96 H264/90000\r\n");
-                                sdp.push_str(&format!(
-                                    "a=fmtp:96 packetization-mode=1; sprop-parameter-sets={},{}\r\n",
-                                    sps_b64, pps_b64
-                                ));
-                                sdp.push_str("a=control:streamid=0\r\n");
-                                has_media = true;
-                            }
+                            let sps = avc_processor
+                                .mpeg4_avc
+                                .sps
+                                .get(0)
+                                .map(|n| BytesMut::from(&n.data[..]));
+                            let pps = avc_processor
+                                .mpeg4_avc
+                                .pps
+                                .get(0)
+                                .map(|n| BytesMut::from(&n.data[..]));
+                            video_cfg = Some(VideoCodecConfig {
+                                codec: streamhub::define::VideoCodecType::H264,
+                                clock_rate: 90000,
+                                sps,
+                                pps,
+                                vps: None,
+                            });
                         }
                     }
                     define::AvcCodecId::HEVC => {
-                        let mut reader = BytesReader::new(remain_bytes.clone());
-                        // hvcc header
-                        let _ = reader.read_u8(); // configurationVersion
-                        let _ = reader.read_u8();
-                        let _ = reader.read_u32::<BigEndian>();
-                        let _ = reader.read_u48::<BigEndian>();
-                        let _ = reader.read_u8();
-                        let _ = reader.read_u16::<BigEndian>();
-                        let _ = reader.read_u8();
-                        let _ = reader.read_u8();
-                        let _ = reader.read_u8();
-                        let _ = reader.read_u8();
-                        let _ = reader.read_u16::<BigEndian>();
-                        let _ = reader.read_u8();
-                        let num_arrays = reader.read_u8().unwrap_or(0);
+                        let mut r = BytesReader::new(remain_bytes.clone());
+                        let _ = r.read_u8(); // configurationVersion
+                        let _ = r.read_u8();
+                        let _ = r.read_u32::<BigEndian>();
+                        let _ = r.read_u48::<BigEndian>();
+                        let _ = r.read_u8();
+                        let _ = r.read_u16::<BigEndian>();
+                        let _ = r.read_u8();
+                        let _ = r.read_u8();
+                        let _ = r.read_u8();
+                        let _ = r.read_u8();
+                        let _ = r.read_u16::<BigEndian>();
+                        let _ = r.read_u8();
+                        let num_arrays = r.read_u8().unwrap_or(0);
 
-                        let mut vps_b64 = String::new();
-                        let mut sps_b64 = String::new();
-                        let mut pps_b64 = String::new();
+                        let mut vps: Option<BytesMut> = None;
+                        let mut sps: Option<BytesMut> = None;
+                        let mut pps: Option<BytesMut> = None;
 
                         for _ in 0..num_arrays {
-                            let header = match reader.read_u8() {
+                            let header = match r.read_u8() {
                                 Ok(h) => h,
                                 Err(_) => break,
                             };
                             let nal_type = header & 0x3F;
-                            let num_nalus = match reader.read_u16::<BigEndian>() {
+                            let num_nalus = match r.read_u16::<BigEndian>() {
                                 Ok(n) => n,
                                 Err(_) => break,
                             };
                             for _ in 0..num_nalus {
-                                let nal_size = match reader.read_u16::<BigEndian>() {
+                                let nal_size = match r.read_u16::<BigEndian>() {
                                     Ok(s) => s as usize,
                                     Err(_) => break,
                                 };
-                                let nal_unit = match reader.read_bytes(nal_size) {
+                                let nal_unit = match r.read_bytes(nal_size) {
                                     Ok(n) => n,
                                     Err(_) => break,
                                 };
-                                let b64 = general_purpose::STANDARD.encode(&nal_unit[..]);
                                 match nal_type {
                                     32 => {
-                                        if vps_b64.is_empty() {
-                                            vps_b64 = b64;
+                                        if vps.is_none() {
+                                            vps = Some(nal_unit);
                                         }
                                     }
                                     33 => {
-                                        if sps_b64.is_empty() {
-                                            sps_b64 = b64;
+                                        if sps.is_none() {
+                                            sps = Some(nal_unit);
                                         }
                                     }
                                     34 => {
-                                        if pps_b64.is_empty() {
-                                            pps_b64 = b64;
+                                        if pps.is_none() {
+                                            pps = Some(nal_unit);
                                         }
                                     }
                                     _ => {}
@@ -889,16 +883,13 @@ impl TStreamHandler for RtmpStreamHandler {
                             }
                         }
 
-                        if !sps_b64.is_empty() && !pps_b64.is_empty() {
-                            sdp.push_str("m=video 0 RTP/AVP 96\r\n");
-                            sdp.push_str("a=rtpmap:96 H265/90000\r\n");
-                            sdp.push_str(&format!(
-                                "a=fmtp:96 sprop-vps={}; sprop-sps={}; sprop-pps={}\r\n",
-                                vps_b64, sps_b64, pps_b64
-                            ));
-                            sdp.push_str("a=control:streamid=0\r\n");
-                            has_media = true;
-                        }
+                        video_cfg = Some(VideoCodecConfig {
+                            codec: streamhub::define::VideoCodecType::H265,
+                            clock_rate: 90000,
+                            sps,
+                            pps,
+                            vps,
+                        });
                     }
                     _ => {}
                 }
@@ -919,27 +910,24 @@ impl TStreamHandler for RtmpStreamHandler {
                         .is_ok()
                     {
                         let sample_rate = aac_processor.mpeg4_aac.sampling_frequency;
-                        let channels = aac_processor.mpeg4_aac.channels;
-                        let asc_hex = hex::encode(&remain_bytes[..]);
-                        sdp.push_str("m=audio 0 RTP/AVP 97\r\n");
-                        sdp.push_str(&format!(
-                            "a=rtpmap:97 MPEG4-GENERIC/{}/{}\r\n",
-                            sample_rate, channels
-                        ));
-                        sdp.push_str(&format!(
-                            "a=fmtp:97 profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3; config={}\r\n",
-                            asc_hex
-                        ));
-                        sdp.push_str("a=control:streamid=1\r\n");
-                        has_media = true;
+                        let channels = aac_processor.mpeg4_aac.channels as u8;
+                        audio_cfg = Some(AudioCodecConfig {
+                            codec: define::SoundFormat::AAC,
+                            clock_rate: sample_rate,
+                            channels,
+                            asc: Some(remain_bytes),
+                        });
                     }
                 }
             }
         }
 
-        if has_media {
-            if let Err(err) = sender.send(Information::Sdp { data: sdp }) {
-                log::error!("send_information of rtmp error: {}", err);
+        if video_cfg.is_some() || audio_cfg.is_some() {
+            if let Err(err) = sender.send(Information::CodecConfig {
+                video: video_cfg,
+                audio: audio_cfg,
+            }) {
+                log::error!("send_information (codec config) of rtmp error: {}", err);
             }
         }
     }
@@ -993,7 +981,7 @@ mod tests {
                 DataSender::Packet { sender: tx },
                 SubscribeDesc {
                     op: StreamOp::Pull,
-                    from: ProtocolId::Rtsp,
+                    from: ProtocolId::Rtmp,
                     to: None,
                 },
             )

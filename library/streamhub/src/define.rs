@@ -155,8 +155,27 @@ pub enum PacketData {
 
 //used to save data which needs to be transferred between client/server sessions
 #[derive(Clone)]
+pub struct VideoCodecConfig {
+    pub codec: VideoCodecType,
+    pub clock_rate: u32,
+    pub sps: Option<BytesMut>,
+    pub pps: Option<BytesMut>,
+    pub vps: Option<BytesMut>,
+}
+
+pub struct AudioCodecConfig {
+    pub codec: SoundFormat,
+    pub clock_rate: u32,
+    pub channels: u8,
+    pub asc: Option<BytesMut>,
+}
+
 pub enum Information {
     Sdp { data: String },
+    CodecConfig {
+        video: Option<VideoCodecConfig>,
+        audio: Option<AudioCodecConfig>,
+    },
 }
 
 pub type FrameDataSender = mpsc::UnboundedSender<FrameData>;

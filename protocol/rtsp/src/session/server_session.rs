@@ -330,9 +330,25 @@ impl RtspServerSession {
         let key = Self::parse_stream_key(&rtsp_request.uri.path)?;
         self.stream_key = Some(key.clone());
 
-        let identifier = StreamIdentifier::Rtmp {
-            app_name: key.app_name.clone(),
-            stream_name: key.stream_name.clone(),
+        // Determine the protocol of the upstream source. By default we assume
+        // the stream originates from an RTMP publisher. A client may specify
+        // `protocol=rtsp` in the query string to explicitly request an RTSP
+        // source. This allows the stream hub to look up the correct identifier
+        // when both RTMP and RTSP publishers are supported.
+        let upstream_proto = rtsp_request
+            .query_pairs
+            .get("protocol")
+            .map(|p| p.to_lowercase());
+
+        let identifier = if matches!(upstream_proto.as_deref(), Some("rtsp")) {
+            StreamIdentifier::Rtsp {
+                stream_path: format!("{}/{}", key.app_name, key.stream_name),
+            }
+        } else {
+            StreamIdentifier::Rtmp {
+                app_name: key.app_name.clone(),
+                stream_name: key.stream_name.clone(),
+            }
         };
 
         let request_event = StreamHubEvent::Request { identifier, sender };
@@ -523,13 +539,14 @@ impl RtspServerSession {
                     let rtcp_channel = Arc::clone(&track.rtcp_channel);
                     let mut rtp_channel_guard = track.rtp_channel.lock().await;
 
-                    rtp_channel_guard
-                        .on_packet_for_rtcp_handler(Box::new(move |packet: RtpPacket| {
+                    rtp_channel_guard.on_packet_for_rtcp_handler(Box::new(
+                        move |packet: RtpPacket| {
                             let rtcp_channel_in = Arc::clone(&rtcp_channel);
                             Box::pin(async move {
                                 rtcp_channel_in.lock().await.on_packet(packet);
                             })
-                        }));
+                        },
+                    ));
 
                     match protocol {
                         ProtocolType::TCP => {
@@ -1000,6 +1017,10 @@ mod tests {
     use bytesio::bytesio_errors::{BytesIOError, BytesIOErrorValue};
     use std::sync::Arc;
     use std::time::Duration;
+    use streamhub::{
+        define::{Information, StreamHubEvent},
+        stream::StreamIdentifier,
+    };
     use tokio::sync::Mutex;
 
     struct MockIO {
@@ -1067,6 +1088,32 @@ mod tests {
         }
     }
 
+    fn build_session_with_receiver(
+        mock: MockIO,
+    ) -> (RtspServerSession, mpsc::UnboundedReceiver<StreamHubEvent>) {
+        let io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>> = Arc::new(Mutex::new(Box::new(mock)));
+        let writer = AsyncBytesWriter::new(io.clone());
+        let (event_sender, event_receiver) = mpsc::unbounded_channel();
+        (
+            RtspServerSession {
+                io,
+                reader: BytesReader::new(BytesMut::new()),
+                writer,
+                tracks: HashMap::new(),
+                sdp: Sdp::default(),
+                session_id: None,
+                session_type: define::ServerSessionType::Push,
+                stream_handler: Arc::new(RtspStreamHandler::new()),
+                event_producer: event_sender,
+                auth: None,
+                stream_key: None,
+                is_normal_exit: false,
+                remote_addr: "127.0.0.1:0".parse().unwrap(),
+            },
+            event_receiver,
+        )
+    }
+
     #[tokio::test]
     async fn test_complete_rtsp_header() {
         let req = BytesMut::from(
@@ -1099,5 +1146,55 @@ mod tests {
         } else {
             panic!("unexpected error {:?}", err);
         }
+    }
+
+    #[tokio::test]
+    async fn test_handle_describe_uses_rtmp_identifier_by_default() {
+        let mock = MockIO::new(vec![]);
+        let (mut session, mut receiver) = build_session_with_receiver(mock);
+
+        let mut request = RtspRequest::default();
+        request.uri.path = "/live/test".to_string();
+        request.headers.insert("CSeq".into(), "1".into());
+
+        let handle = tokio::spawn(async move {
+            if let Some(StreamHubEvent::Request { identifier, sender }) = receiver.recv().await {
+                assert!(matches!(identifier, StreamIdentifier::Rtmp { .. }));
+                let _ = sender.send(Information::Sdp {
+                    data: String::new(),
+                });
+            } else {
+                panic!("no event received");
+            }
+        });
+
+        assert!(session.handle_describe(&request).await.is_ok());
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_handle_describe_uses_rtsp_identifier_when_specified() {
+        let mock = MockIO::new(vec![]);
+        let (mut session, mut receiver) = build_session_with_receiver(mock);
+
+        let mut request = RtspRequest::default();
+        request.uri.path = "/live/test".to_string();
+        request.uri.query = Some("protocol=rtsp".to_string());
+        request.query_pairs.insert("protocol".into(), "rtsp".into());
+        request.headers.insert("CSeq".into(), "1".into());
+
+        let handle = tokio::spawn(async move {
+            if let Some(StreamHubEvent::Request { identifier, sender }) = receiver.recv().await {
+                assert!(matches!(identifier, StreamIdentifier::Rtsp { .. }));
+                let _ = sender.send(Information::Sdp {
+                    data: String::new(),
+                });
+            } else {
+                panic!("no event received");
+            }
+        });
+
+        assert!(session.handle_describe(&request).await.is_ok());
+        handle.await.unwrap();
     }
 }

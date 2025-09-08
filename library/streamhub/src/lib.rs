@@ -1140,3 +1140,123 @@ impl StreamsHub {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::define::{
+        Information, InformationSender, NotifyInfo, PubDataType, PublishType, PublisherInfo,
+        StreamHubEvent,
+    };
+    use crate::utils::RandomDigitCount;
+    use async_trait::async_trait;
+    use stream::StreamIdentifier;
+
+    #[derive(Default)]
+    struct MockHandler;
+
+    #[async_trait]
+    impl TStreamHandler for MockHandler {
+        async fn send_prior_data(
+            &self,
+            _sender: DataSender,
+            _sub_type: SubscribeType,
+        ) -> Result<(), StreamHubError> {
+            Ok(())
+        }
+
+        async fn get_statistic_data(&self) -> Option<StatisticsStream> {
+            None
+        }
+
+        async fn send_information(&self, sender: InformationSender) {
+            let _ = sender.send(Information::Sdp {
+                data: "sdp".to_string(),
+            });
+        }
+    }
+
+    #[tokio::test]
+    async fn request_sdp_for_multiple_identifiers() {
+        let mut hub = StreamsHub::new(None);
+        let event_sender = hub.get_hub_event_sender();
+        tokio::spawn(async move {
+            hub.run().await;
+        });
+
+        // Publish and request for RTMP identifier
+        let (tx, rx) = oneshot::channel();
+        let publish_event = StreamHubEvent::Publish {
+            identifier: StreamIdentifier::Rtmp {
+                app_name: "live".into(),
+                stream_name: "rtmp".into(),
+            },
+            info: PublisherInfo {
+                id: Uuid::new(RandomDigitCount::Zero),
+                pub_type: PublishType::RtmpPush,
+                pub_data_type: PubDataType::Frame,
+                notify_info: NotifyInfo {
+                    request_url: String::new(),
+                    remote_addr: String::new(),
+                },
+            },
+            result_sender: tx,
+            stream_handler: Arc::new(MockHandler::default()),
+        };
+        event_sender.send(publish_event).unwrap();
+        rx.await.unwrap().ok();
+
+        let (info_tx, mut info_rx) = mpsc::unbounded_channel();
+        event_sender
+            .send(StreamHubEvent::Request {
+                identifier: StreamIdentifier::Rtmp {
+                    app_name: "live".into(),
+                    stream_name: "rtmp".into(),
+                },
+                sender: info_tx,
+            })
+            .unwrap();
+
+        match info_rx.recv().await {
+            Some(Information::Sdp { data }) => assert_eq!(data, "sdp"),
+            _ => panic!("no sdp returned"),
+        }
+
+        // Publish and request for RTSP identifier
+        let (tx2, rx2) = oneshot::channel();
+        let publish_event = StreamHubEvent::Publish {
+            identifier: StreamIdentifier::Rtsp {
+                stream_path: "live/rtsp".into(),
+            },
+            info: PublisherInfo {
+                id: Uuid::new(RandomDigitCount::Zero),
+                pub_type: PublishType::RtspPush,
+                pub_data_type: PubDataType::Frame,
+                notify_info: NotifyInfo {
+                    request_url: String::new(),
+                    remote_addr: String::new(),
+                },
+            },
+            result_sender: tx2,
+            stream_handler: Arc::new(MockHandler::default()),
+        };
+        event_sender.send(publish_event).unwrap();
+        rx2.await.unwrap().ok();
+
+        let (info_tx2, mut info_rx2) = mpsc::unbounded_channel();
+        event_sender
+            .send(StreamHubEvent::Request {
+                identifier: StreamIdentifier::Rtsp {
+                    stream_path: "live/rtsp".into(),
+                },
+                sender: info_tx2,
+            })
+            .unwrap();
+
+        match info_rx2.recv().await {
+            Some(Information::Sdp { data }) => assert_eq!(data, "sdp"),
+            _ => panic!("no sdp returned"),
+        }
+    }
+}

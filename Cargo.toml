@@ -1,6 +1,7 @@
 [workspace]
 resolver = "1"
 members = [
+  "protocol/rtp",
   "protocol/rtmp",
   "protocol/httpflv",
   "protocol/hls",
@@ -19,6 +20,7 @@ members = [
   "library/common",
 ]
 default-members = [
+  "protocol/rtp",
   "protocol/rtmp",
   "protocol/httpflv",
   "protocol/hls",

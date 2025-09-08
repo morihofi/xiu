@@ -1,0 +1,10 @@
+[package]
+name = "xrtp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytes = "1"
+byteorder = "1"
+bytesio = { path = "../../library/bytesio/" }
+

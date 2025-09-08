@@ -4145,6 +4145,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "xrtp"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "bytesio",
+]
+
+[[package]]
 name = "xrtsp"
 version = "0.1.1"
 dependencies = [
@@ -4165,6 +4174,7 @@ dependencies = [
  "serde_json",
  "streamhub",
  "tokio",
+ "xrtp",
 ]
 
 [[package]]

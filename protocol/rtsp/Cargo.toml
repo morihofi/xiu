@@ -28,3 +28,4 @@ serde_json = { version = "1", default-features = false, features = [
 bytesio = { path = "../../library/bytesio/" }
 streamhub = { path = "../../library/streamhub/" }
 commonlib = { path = "../../library/common/" }
+xrtp = { path = "../rtp" }

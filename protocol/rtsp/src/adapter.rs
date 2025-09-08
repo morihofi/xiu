@@ -2,11 +2,7 @@ use bytes::BytesMut;
 use bytesio::bytes_reader::BytesReader;
 use streamhub::{define::MediaPacket, ProtocolAdapter};
 
-use crate::rtp::{
-    rtp_header::RtpHeader,
-    utils::{Marshal, Unmarshal},
-    RtpPacket,
-};
+use crate::rtp::{utils::{Marshal, Unmarshal}, RtpHeader, RtpPacket};
 
 /// Adapter for converting between RTSP payloads and [`MediaPacket`].
 pub struct RtspAdapter;

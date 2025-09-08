@@ -733,7 +733,24 @@ impl RtspServerSession {
             is_keyframe,
             payload: data,
         };
-        rtp_channel.on_frame(&mut packet.payload, timestamp).await?;
+        // Scale RTMP millisecond timestamps to RTP clock units.
+        // Video typically uses 90kHz clock; audio uses its sample rate.
+        let clock_rate = match track.track_type {
+            TrackType::Video => {
+                let sr = track.codec_info.sample_rate;
+                if sr == 0 { 90000 } else { sr }
+            }
+            TrackType::Audio => {
+                let sr = track.codec_info.sample_rate;
+                if sr == 0 { 48000 } else { sr }
+            }
+            _ => track.codec_info.sample_rate.max(90000),
+        } as u64;
+
+        let rtp_ts = ((timestamp as u64) * clock_rate) / 1000u64;
+        rtp_channel
+            .on_frame(&mut packet.payload, rtp_ts as u32)
+            .await?;
         Ok(())
     }
 

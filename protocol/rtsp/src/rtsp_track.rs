@@ -35,6 +35,8 @@ pub struct RtspTrack {
     pub transport: RtspTransport,
     pub uri: String,
     pub media_control: String,
+    // Keep codec information handy for timestamp scaling, etc.
+    pub codec_info: RtspCodecInfo,
 
     pub rtp_channel: Arc<Mutex<RtpChannel>>,
     pub rtcp_channel: Arc<Mutex<RtcpChannel>>,
@@ -42,13 +44,14 @@ pub struct RtspTrack {
 
 impl RtspTrack {
     pub fn new(track_type: TrackType, codec_info: RtspCodecInfo, media_control: String) -> Self {
-        let rtp_channel = RtpChannel::new(codec_info);
+        let rtp_channel = RtpChannel::new(codec_info.clone());
 
         RtspTrack {
             track_type,
             media_control,
             transport: RtspTransport::default(),
             uri: String::default(),
+            codec_info,
             rtp_channel: Arc::new(Mutex::new(rtp_channel)),
             rtcp_channel: Arc::new(Mutex::default()),
         }

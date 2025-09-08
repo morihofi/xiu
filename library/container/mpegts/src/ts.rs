@@ -56,6 +56,8 @@ impl TsMuxer {
         self.pcr_clock = 0;
 
         self.packet_number = 0;
+        self.pat_continuity_counter = 0; // counters need to be reset to have independent HLS segments
+        self.pmt_continuity_counter = 0;
     }
 
     pub fn get_data(&mut self) -> BytesMut {
@@ -431,5 +433,85 @@ impl TsMuxer {
         self.pat.pmt.push(cur_pmt);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::define::{epsi_stream_type, MPEG_FLAG_IDR_FRAME};
+    use super::*;
+    use bytes::BytesMut;
+
+    // Ensure each segment starts with PAT/PMT continuity counter 0 and can be parsed standalone.
+    #[test]
+    fn segment_starts_with_pat_pmt_cc_zero() {
+        let mut muxer = TsMuxer::new();
+        let pid = muxer
+            .add_stream(epsi_stream_type::PSI_STREAM_H264, BytesMut::new())
+            .unwrap();
+
+        // First segment to advance continuity counters
+        muxer
+            .write(pid, 0, 0, MPEG_FLAG_IDR_FRAME, BytesMut::from(&[0x00u8][..]))
+            .unwrap();
+        let _ = muxer.get_data();
+
+        // Second segment after reset
+        muxer.reset();
+        let test_payload = BytesMut::from(&[0x01u8, 0x02, 0x03, 0x04][..]);
+        muxer
+            .write(
+                pid,
+                90_000,
+                90_000,
+                MPEG_FLAG_IDR_FRAME,
+                test_payload.clone(),
+            )
+            .unwrap();
+        let seg = muxer.get_data();
+
+        // Segment must contain PAT and PMT packets at the start
+        assert!(seg.len() >= 188 * 3);
+
+        // ---------- PAT ----------
+        let pat_pkt = &seg[0..188];
+        assert_eq!(pat_pkt[0], 0x47);
+        let pat_pid = ((pat_pkt[1] as u16 & 0x1F) << 8) | pat_pkt[2] as u16;
+        assert_eq!(pat_pid, 0);
+        assert_eq!(pat_pkt[3] & 0x0F, 0);
+        let pointer_field = pat_pkt[4] as usize;
+        let pat_section = &pat_pkt[5 + pointer_field..];
+        assert_eq!(pat_section[0], 0x00);
+        let pmt_pid = (((pat_section[10] as u16) & 0x1F) << 8) | pat_section[11] as u16;
+
+        // ---------- PMT ----------
+        let pmt_pkt = &seg[188..376];
+        assert_eq!(pmt_pkt[0], 0x47);
+        let pmt_pid_actual = ((pmt_pkt[1] as u16 & 0x1F) << 8) | pmt_pkt[2] as u16;
+        assert_eq!(pmt_pid_actual, pmt_pid);
+        assert_eq!(pmt_pkt[3] & 0x0F, 0);
+        let pointer_field2 = pmt_pkt[4] as usize;
+        let pmt_section = &pmt_pkt[5 + pointer_field2..];
+        assert_eq!(pmt_section[0], 0x02);
+        let program_info_length =
+            (((pmt_section[10] & 0x0F) as usize) << 8) | pmt_section[11] as usize;
+        let es_info = &pmt_section[12 + program_info_length..];
+        let stream_pid = (((es_info[1] as u16) & 0x1F) << 8) | es_info[2] as u16;
+
+        // ---------- PES ----------
+        let pes_pkt = &seg[376..564];
+        assert_eq!(pes_pkt[0], 0x47);
+        let pes_pid = ((pes_pkt[1] as u16 & 0x1F) << 8) | pes_pkt[2] as u16;
+        assert_eq!(pes_pid, stream_pid);
+        let mut idx = 4;
+        if (pes_pkt[3] & 0x20) != 0 {
+            let af_len = pes_pkt[idx] as usize;
+            idx += 1 + af_len;
+        }
+        assert_eq!(&pes_pkt[idx..idx + 3], &[0x00, 0x00, 0x01]);
+        let pes_header_data_length = pes_pkt[idx + 8] as usize;
+        let payload_start = idx + 9 + pes_header_data_length;
+        assert!(payload_start < pes_pkt.len());
+        assert!(!pes_pkt[payload_start..].is_empty());
     }
 }

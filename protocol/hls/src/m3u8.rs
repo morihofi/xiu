@@ -3,7 +3,7 @@ use chrono::Duration;
 use {
     super::{errors::MediaError, ts::Ts},
     bytes::BytesMut,
-    std::{collections::VecDeque, fs, fs::File, io::Write},
+    std::{collections::VecDeque, fs, fs::File, io::Write, path::PathBuf},
 };
 
 /**
@@ -13,7 +13,7 @@ pub struct Segment {
     pub duration: i64, // ts fragment duration in ms
     pub discontinuity: bool,
     pub name: String, // ts fragment name
-    path: String,
+    path: PathBuf,
     pub is_eof: bool,
     pub pdt: Option<DateTime<Utc>>, // Program Data Time (time when it was broadcasted)
 }
@@ -23,7 +23,7 @@ impl Segment {
         duration: i64,
         discontinuity: bool,
         name: String,
-        path: String,
+        path: PathBuf,
         is_eof: bool,
         pdt: Option<DateTime<Utc>>,
     ) -> Self {
@@ -118,8 +118,12 @@ impl M3u8 {
         if segment_count >= self.live_ts_count {
             let segment = self.segments.pop_front().unwrap();
             if !self.need_record {
-                if let Err(err) = self.ts_handler.delete(segment.path) {
-                    log::error!("failed to delete segment file: {}", err);
+                if let Err(err) = self.ts_handler.delete(&segment.path) {
+                    log::error!(
+                        "failed to delete segment file {}: {}",
+                        segment.path.display(),
+                        err
+                    );
                 }
             }
 
@@ -156,8 +160,12 @@ impl M3u8 {
             file_handler.write_all(self.vod_m3u8_content.as_bytes())?;
         } else {
             for segment in &self.segments {
-                if let Err(err) = self.ts_handler.delete(segment.path.clone()) {
-                    log::error!("failed to delete segment file during clear: {}", err);
+                if let Err(err) = self.ts_handler.delete(&segment.path) {
+                    log::error!(
+                        "failed to delete segment file during clear {}: {}",
+                        segment.path.display(),
+                        err
+                    );
                 }
             }
         }

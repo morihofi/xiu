@@ -27,6 +27,7 @@ pub enum ProtocolId {
     Rtsp,
     WebRtc,
     HttpFlv,
+    HttpTs,
     Hls,
     Rtp,
 }

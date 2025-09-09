@@ -675,6 +675,7 @@ impl TStreamHandler for RtmpStreamHandler {
                     (desc.op, &desc.from, &desc.to),
                     (StreamOp::Pull, _, _)
                         | (StreamOp::Remux, ProtocolId::Rtmp, Some(ProtocolId::HttpFlv))
+                        | (StreamOp::Remux, ProtocolId::Rtmp, Some(ProtocolId::HttpTs))
                         | (StreamOp::Remux, ProtocolId::Rtmp, Some(ProtocolId::Hls))
                 ) {
                     if let Some(gops_data) = cache.get_gops_data() {

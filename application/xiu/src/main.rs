@@ -7,6 +7,7 @@ use {
     tokio::signal,
     xiu::{config, config::Config, service::Service},
 };
+mod http_stream;
 
 // #[tokio::main(flavor = "current_thread")]
 #[tokio::main]

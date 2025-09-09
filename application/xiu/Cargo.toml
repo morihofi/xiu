@@ -34,6 +34,8 @@ xrtsp = { path = "../../protocol/rtsp/" }
 xwebrtc = { path = "../../protocol/webrtc/", optional = true }
 httpflv = { path = "../../protocol/httpflv/" }
 hls = { path = "../../protocol/hls/" }
+mpegts-proto = { path = "../../protocol/mpegts/" }
+futures = "0.3"
 
 [features]
 default = ["std"]

@@ -6,3 +6,8 @@ edition = "2021"
 [dependencies]
 bytes = "1.0.0"
 streamhub = { path = "../../library/streamhub/" }
+futures = "0.3"
+thiserror = "1.0"
+tokio = { version = "1", features = ["sync"] }
+xmpegts = { path = "../../library/container/mpegts/" }
+chrono = "0.4"

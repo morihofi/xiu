@@ -36,6 +36,8 @@ impl Config {
                 enabled: true,
                 gop_num: Some(1),
                 port: rtmp_port,
+                max_no_data_retries: Some(10),
+                read_timeout_ms: Some(2000),
                 pull: None,
                 push: None,
                 auth: None,
@@ -50,6 +52,8 @@ impl Config {
                 port: rtsp_port,
                 auth: None,
                 mtu: None,
+                header_retry_max: Some(5),
+                play_no_data_retry_max: Some(10),
             });
         }
 
@@ -68,6 +72,7 @@ impl Config {
                 enabled: true,
                 port: httpflv_port,
                 auth: None,
+                max_no_data_retries: Some(10),
             });
         }
 
@@ -78,6 +83,8 @@ impl Config {
                 port: hls_port,
                 need_record: false,
                 auth: None,
+                max_no_data_retries: Some(10),
+                no_data_sleep_ms: Some(100),
             });
         }
 

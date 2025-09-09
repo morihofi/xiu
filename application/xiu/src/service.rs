@@ -11,7 +11,6 @@ use {
     commonlib::auth::Auth,
     hls::remuxer::HlsRemuxer,
     hls::server as hls_server,
-    httpflv::server as httpflv_server,
     rtmp::{
         relay::{pull_client::PullClient, push_client::PushClient},
         rtmp::RtmpServer,
@@ -310,10 +309,10 @@ impl Service {
                 httpflv_cfg_value.max_no_data_retries.unwrap_or(10);
             tokio::spawn(async move {
                 if let Err(err) =
-                    httpflv_server::run(event_producer, port, auth, httpflv_max_no_data_retries)
+                    crate::http_stream::run(event_producer, port, auth, httpflv_max_no_data_retries)
                         .await
                 {
-                    log::error!("httpflv server error: {}", err);
+                    log::error!("http stream server error: {}", err);
                 }
             });
         }

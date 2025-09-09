@@ -84,6 +84,7 @@ pub struct RtspServerSession {
     pub stream_key: Option<StreamKey>,
     pub is_normal_exit: bool,
     remote_addr: SocketAddr,
+    mtu: usize,
 }
 
 pub struct InterleavedBinaryData {
@@ -120,6 +121,7 @@ impl RtspServerSession {
         stream: TcpStream,
         event_producer: StreamHubEventSender,
         auth: Option<Auth>,
+        mtu: usize,
     ) -> Self {
         // let remote_addr = if let Ok(addr) = stream.peer_addr() {
         //     log::info!("server session: {}", addr.to_string());
@@ -146,6 +148,7 @@ impl RtspServerSession {
             stream_key: None,
             is_normal_exit: false,
             remote_addr,
+            mtu,
         };
         log::info!("rtsp server session start: remote_addr={}", this.remote_addr);
         this
@@ -568,6 +571,8 @@ impl RtspServerSession {
 
                     match trans.protocol_type {
                         ProtocolType::TCP => {
+                            // ensure MTU applied before packer creation
+                            track.set_mtu(self.mtu).await;
                             track.create_packer(self.io.clone()).await;
                         }
                         ProtocolType::UDP => {
@@ -586,6 +591,7 @@ impl RtspServerSession {
                                 let box_udp_io: Box<dyn TNetIO + Send + Sync> = Box::new(rtp_io);
                                 //if mode is empty then it is a player session.
                                 if trans.transport_mod.is_none() {
+                                    track.set_mtu(self.mtu).await;
                                     track.create_packer(Arc::new(Mutex::new(box_udp_io))).await;
                                 } else {
                                     track.rtp_receive_loop(box_udp_io).await;

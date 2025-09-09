@@ -5,6 +5,8 @@
 enabled = true
 port = 8554
 relay_enabled = false
+# RTP packetization MTU (bytes). Defaults to 1400 if not set.
+mtu = 1400
 [rtsp.auth]
 pull_enabled = false
 push_enabled = false

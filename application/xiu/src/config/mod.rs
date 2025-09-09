@@ -49,6 +49,7 @@ impl Config {
                 relay_enabled: false,
                 port: rtsp_port,
                 auth: None,
+                mtu: None,
             });
         }
 
@@ -128,6 +129,7 @@ pub struct RtspConfig {
     pub port: usize,
     pub auth: Option<AuthConfig>,
     pub relay_enabled: bool,
+    pub mtu: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

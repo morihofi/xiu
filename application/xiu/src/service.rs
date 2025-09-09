@@ -212,7 +212,8 @@ impl Service {
             let address = format!("0.0.0.0:{listen_port}");
 
             let auth = Self::gen_auth(&rtsp_cfg_value.auth, &self.cfg.authsecret);
-            let mut rtsp_server = RtspServer::new(address, producer, auth);
+            let mtu = rtsp_cfg_value.mtu.unwrap_or(1400);
+            let mut rtsp_server = RtspServer::new(address, producer, auth, mtu);
             tokio::spawn(async move {
                 if let Err(err) = rtsp_server.run().await {
                     log::error!("rtsp server error: {}", err);

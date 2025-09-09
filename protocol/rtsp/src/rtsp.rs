@@ -11,14 +11,21 @@ pub struct RtspServer {
     address: String,
     event_producer: StreamHubEventSender,
     auth: Option<Auth>,
+    mtu: usize,
 }
 
 impl RtspServer {
-    pub fn new(address: String, event_producer: StreamHubEventSender, auth: Option<Auth>) -> Self {
+    pub fn new(
+        address: String,
+        event_producer: StreamHubEventSender,
+        auth: Option<Auth>,
+        mtu: usize,
+    ) -> Self {
         Self {
             address,
             event_producer,
             auth,
+            mtu,
         }
     }
 
@@ -38,8 +45,12 @@ impl RtspServer {
         log::info!("RTSP server listening on tcp://{}", socket_addr);
         loop {
             let (tcp_stream, _) = listener.accept().await?;
-            let mut session =
-                RtspServerSession::new(tcp_stream, self.event_producer.clone(), self.auth.clone());
+            let mut session = RtspServerSession::new(
+                tcp_stream,
+                self.event_producer.clone(),
+                self.auth.clone(),
+                self.mtu,
+            );
             tokio::spawn(async move {
                 if let Err(err) = session.run().await {
                     let session_id = if let Some(id) = session.session_id {

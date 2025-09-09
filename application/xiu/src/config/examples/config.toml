@@ -46,6 +46,8 @@ password = ""
 [rtsp]
 enabled = false
 port = 445
+# RTP packetization MTU (bytes). Defaults to 1400 if not set.
+mtu = 1400
 [rtsp.auth]
 pull_enabled = true
 push_enabled = true

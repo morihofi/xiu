@@ -239,7 +239,10 @@ impl Unmarshal for Sdp {
                 }
                 "b" => {
                     if let Some(cur_media) = sdp.medias.last_mut() {
-                        cur_media.bandwidth = Some(Bandwidth::unmarshal(kv[1]).unwrap());
+                        match Bandwidth::unmarshal(kv[1]) {
+                            Some(bw) => cur_media.bandwidth = Some(bw),
+                            None => log::warn!("Failed to parse SDP bandwidth line: b={}", kv[1]),
+                        }
                     } else {
                         continue;
                     }

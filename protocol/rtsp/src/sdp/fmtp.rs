@@ -97,10 +97,29 @@ impl Unmarshal for H264Fmtp {
                 }
                 "sprop-parameter-sets" => {
                     let spspps: Vec<&str> = kv[1].split(',').collect();
-                    let sps = general_purpose::STANDARD.decode(spspps[0]).unwrap();
-                    h264_fmtp.sps.put(&sps[..]);
-                    let pps = general_purpose::STANDARD.decode(spspps[1]).unwrap();
-                    h264_fmtp.pps.put(&pps[..]);
+                    if spspps.len() >= 1 {
+                        match general_purpose::STANDARD.decode(spspps[0]) {
+                            Ok(sps) => h264_fmtp.sps.put(&sps[..]),
+                            Err(e) => log::warn!("Failed to decode H264 SPS from base64: {}", e),
+                        }
+                    } else {
+                        log::warn!(
+                            "H264 fmtp sprop-parameter-sets missing SPS value: {}",
+                            kv[1]
+                        );
+                    }
+
+                    if spspps.len() >= 2 {
+                        match general_purpose::STANDARD.decode(spspps[1]) {
+                            Ok(pps) => h264_fmtp.pps.put(&pps[..]),
+                            Err(e) => log::warn!("Failed to decode H264 PPS from base64: {}", e),
+                        }
+                    } else {
+                        log::warn!(
+                            "H264 fmtp sprop-parameter-sets missing PPS value: {}",
+                            kv[1]
+                        );
+                    }
                 }
                 "profile-level-id" => {
                     h264_fmtp.profile_level_id = kv[1].into();
@@ -215,8 +234,13 @@ impl Unmarshal for Mpeg4Fmtp {
                     mpeg4_fmtp.mode = kv[1].to_string();
                 }
                 "config" => {
-                    let asc = hex::decode(kv[1]).unwrap();
-                    mpeg4_fmtp.asc.put(&asc[..]);
+                    match hex::decode(kv[1]) {
+                        Ok(asc) => mpeg4_fmtp.asc.put(&asc[..]),
+                        Err(e) => log::warn!(
+                            "Failed to decode MPEG4-GENERIC config (hex) '{}': {}",
+                            kv[1], e
+                        ),
+                    }
                 }
                 "profile-level-id" => {
                     mpeg4_fmtp.profile_level_id = kv[1].into();

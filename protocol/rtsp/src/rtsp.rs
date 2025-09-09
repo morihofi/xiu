@@ -12,6 +12,8 @@ pub struct RtspServer {
     event_producer: StreamHubEventSender,
     auth: Option<Auth>,
     mtu: usize,
+    header_retry_max: usize,
+    play_no_data_retry_max: usize,
 }
 
 impl RtspServer {
@@ -20,12 +22,16 @@ impl RtspServer {
         event_producer: StreamHubEventSender,
         auth: Option<Auth>,
         mtu: usize,
+        header_retry_max: usize,
+        play_no_data_retry_max: usize,
     ) -> Self {
         Self {
             address,
             event_producer,
             auth,
             mtu,
+            header_retry_max,
+            play_no_data_retry_max,
         }
     }
 
@@ -50,6 +56,8 @@ impl RtspServer {
                 self.event_producer.clone(),
                 self.auth.clone(),
                 self.mtu,
+                self.header_retry_max,
+                self.play_no_data_retry_max,
             );
             tokio::spawn(async move {
                 if let Err(err) = session.run().await {

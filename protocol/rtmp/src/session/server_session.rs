@@ -61,6 +61,7 @@ pub struct ServerSession {
     /*configure how many gops will be cached.*/
     gop_num: usize,
     auth: Option<Auth>,
+    read_timeout: Duration,
 }
 
 impl ServerSession {
@@ -69,6 +70,8 @@ impl ServerSession {
         event_producer: StreamHubEventSender,
         gop_num: usize,
         auth: Option<Auth>,
+        read_timeout_ms: u64,
+        max_no_data_retries: usize,
     ) -> Self {
         let remote_addr = if let Ok(addr) = stream.peer_addr() {
             log::info!("rtmp server session start: remote_addr={}", addr.to_string());
@@ -93,6 +96,7 @@ impl ServerSession {
                 event_producer,
                 SessionType::Server,
                 remote_addr,
+                max_no_data_retries,
             ),
 
             bytesio_data: BytesMut::new(),
@@ -100,6 +104,7 @@ impl ServerSession {
             connect_properties: ConnectProperties::default(),
             gop_num,
             auth,
+            read_timeout: Duration::from_millis(read_timeout_ms),
         };
         log::debug!(
             "rtmp session created: sid={}, state=Handshake",
@@ -171,7 +176,7 @@ impl ServerSession {
                 .io
                 .lock()
                 .await
-                .read_timeout(Duration::from_secs(2))
+                .read_timeout(self.read_timeout)
                 .await
             {
                 Ok(data) => {

@@ -38,6 +38,7 @@ pub struct HttpFlv {
     subscriber_id: Uuid,
     request_url: String,
     remote_addr: SocketAddr,
+    max_no_data_retries: usize,
 }
 
 impl HttpFlv {
@@ -48,6 +49,7 @@ impl HttpFlv {
         http_response_data_producer: HttpResponseDataProducer,
         request_url: String,
         remote_addr: SocketAddr,
+        max_no_data_retries: usize,
     ) -> Self {
         let (_, data_receiver) = mpsc::unbounded_channel();
         let subscriber_id = Uuid::new(RandomDigitCount::Four);
@@ -66,6 +68,7 @@ impl HttpFlv {
             subscriber_id,
             request_url,
             remote_addr,
+            max_no_data_retries,
         }
     }
 
@@ -142,7 +145,7 @@ impl HttpFlv {
             } else {
                 retry_count += 1;
             }
-            if retry_count > 10 {
+            if retry_count > self.max_no_data_retries {
                 break;
             }
         }

@@ -27,6 +27,8 @@ pub struct FlvDataReceiver {
     data_consumer: FrameDataReceiver,
     media_processor: Flv2HlsRemuxer,
     subscriber_id: Uuid,
+    max_no_data_retries: usize,
+    no_data_sleep: Duration,
 }
 
 impl FlvDataReceiver {
@@ -37,6 +39,8 @@ impl FlvDataReceiver {
         duration: i64,
         need_record: bool,
         data_dir: Option<String>,
+        max_no_data_retries: usize,
+        no_data_sleep_ms: u64,
     ) -> Self {
         let (_, data_consumer) = mpsc::unbounded_channel();
         let subscriber_id = Uuid::new(RandomDigitCount::Four);
@@ -54,6 +58,8 @@ impl FlvDataReceiver {
                 data_dir,
             ),
             subscriber_id,
+            max_no_data_retries,
+            no_data_sleep: Duration::from_millis(no_data_sleep_ms),
         }
     }
 
@@ -78,14 +84,14 @@ impl FlvDataReceiver {
                 retry_count = 0;
                 self.media_processor.process_flv_data(flv_data)?;
             } else {
-                sleep(Duration::from_millis(100)).await;
+                sleep(self.no_data_sleep).await;
                 retry_count += 1;
             }
             //When rtmp stream is interupted here we retry 10 times.
             //maybe have a better way to judge the stream status.
             //will do an optimization in the future.
             //todo
-            if retry_count > 10 {
+            if retry_count > self.max_no_data_retries {
                 self.media_processor.flush_remaining_data()?;
                 break;
             }

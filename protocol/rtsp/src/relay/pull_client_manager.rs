@@ -20,14 +20,20 @@ pub struct RtspPullClientManager {
     clients: HashMap<String, Arc<AtomicBool>>,
     client_event_consumer: BroadcastEventReceiver,
     channel_event_producer: StreamHubEventSender,
+    client_header_retry_max: usize,
 }
 
 impl RtspPullClientManager {
-    pub fn new(consumer: BroadcastEventReceiver, producer: StreamHubEventSender) -> Self {
+    pub fn new(
+        consumer: BroadcastEventReceiver,
+        producer: StreamHubEventSender,
+        client_header_retry_max: usize,
+    ) -> Self {
         Self {
             clients: HashMap::new(),
             client_event_consumer: consumer,
             channel_event_producer: producer,
+            client_header_retry_max,
         }
     }
 
@@ -73,6 +79,7 @@ impl RtspPullClientManager {
                                 ProtocolType::TCP,
                                 self.channel_event_producer.clone(),
                                 ClientSessionType::Pull,
+                                self.client_header_retry_max,
                             )
                             .await
                             {

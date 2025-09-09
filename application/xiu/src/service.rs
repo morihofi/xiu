@@ -184,7 +184,17 @@ impl Service {
             let address = format!("0.0.0.0:{listen_port}");
 
             let auth = Self::gen_auth(&rtmp_cfg_value.auth, &self.cfg.authsecret);
-            let mut rtmp_server = RtmpServer::new(address, producer, gop_num, auth);
+            let rtmp_read_timeout_ms = rtmp_cfg_value.read_timeout_ms.unwrap_or(2000);
+            let rtmp_max_no_data_retries = rtmp_cfg_value.max_no_data_retries.unwrap_or(10);
+
+            let mut rtmp_server = RtmpServer::new(
+                address,
+                producer,
+                gop_num,
+                auth,
+                rtmp_read_timeout_ms,
+                rtmp_max_no_data_retries,
+            );
             tokio::spawn(async move {
                 if let Err(err) = rtmp_server.run().await {
                     log::error!("rtmp server error: {}", err);
@@ -213,7 +223,16 @@ impl Service {
 
             let auth = Self::gen_auth(&rtsp_cfg_value.auth, &self.cfg.authsecret);
             let mtu = rtsp_cfg_value.mtu.unwrap_or(1400);
-            let mut rtsp_server = RtspServer::new(address, producer, auth, mtu);
+            let header_retry_max = rtsp_cfg_value.header_retry_max.unwrap_or(5);
+            let play_no_data_retry_max = rtsp_cfg_value.play_no_data_retry_max.unwrap_or(10);
+            let mut rtsp_server = RtspServer::new(
+                address,
+                producer,
+                auth,
+                mtu,
+                header_retry_max,
+                play_no_data_retry_max,
+            );
             tokio::spawn(async move {
                 if let Err(err) = rtsp_server.run().await {
                     log::error!("rtsp server error: {}", err);
@@ -224,6 +243,7 @@ impl Service {
                 let mut rtsp_relay_manager = RtspPullClientManager::new(
                     stream_hub.get_client_event_consumer(),
                     stream_hub.get_hub_event_sender(),
+                    header_retry_max,
                 );
 
                 tokio::spawn(async move {
@@ -286,8 +306,13 @@ impl Service {
             let event_producer = stream_hub.get_hub_event_sender();
 
             let auth = Self::gen_auth(&httpflv_cfg_value.auth, &self.cfg.authsecret);
+            let httpflv_max_no_data_retries =
+                httpflv_cfg_value.max_no_data_retries.unwrap_or(10);
             tokio::spawn(async move {
-                if let Err(err) = httpflv_server::run(event_producer, port, auth).await {
+                if let Err(err) =
+                    httpflv_server::run(event_producer, port, auth, httpflv_max_no_data_retries)
+                        .await
+                {
                     log::error!("httpflv server error: {}", err);
                 }
             });
@@ -310,11 +335,15 @@ impl Service {
             let event_producer = stream_hub.get_hub_event_sender();
             let cient_event_consumer = stream_hub.get_client_event_consumer();
             let data_dir = self.cfg.data_dir.clone();
+            let hls_max_no_data_retries = hls_cfg_value.max_no_data_retries.unwrap_or(10);
+            let hls_no_data_sleep_ms = hls_cfg_value.no_data_sleep_ms.unwrap_or(100);
             let mut hls_remuxer = HlsRemuxer::new(
                 cient_event_consumer,
                 event_producer,
                 hls_cfg_value.need_record,
                 data_dir.clone(),
+                hls_max_no_data_retries,
+                hls_no_data_sleep_ms,
             );
 
             tokio::spawn(async move {

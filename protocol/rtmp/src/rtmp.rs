@@ -11,6 +11,8 @@ pub struct RtmpServer {
     event_producer: StreamHubEventSender,
     gop_num: usize,
     auth: Option<Auth>,
+    read_timeout_ms: u64,
+    max_no_data_retries: usize,
 }
 
 impl RtmpServer {
@@ -19,12 +21,16 @@ impl RtmpServer {
         event_producer: StreamHubEventSender,
         gop_num: usize,
         auth: Option<Auth>,
+        read_timeout_ms: u64,
+        max_no_data_retries: usize,
     ) -> Self {
         Self {
             address,
             event_producer,
             gop_num,
             auth,
+            read_timeout_ms,
+            max_no_data_retries,
         }
     }
 
@@ -42,6 +48,8 @@ impl RtmpServer {
                 self.event_producer.clone(),
                 self.gop_num,
                 self.auth.clone(),
+                self.read_timeout_ms,
+                self.max_no_data_retries,
             );
             tokio::spawn(async move {
                 if let Err(err) = session.run().await {

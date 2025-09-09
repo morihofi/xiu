@@ -112,7 +112,13 @@ impl ClientSession {
             None
         };
 
-        let common = Common::new(packetizer, event_producer, SessionType::Client, remote_addr);
+        let common = Common::new(
+            packetizer,
+            event_producer,
+            SessionType::Client,
+            remote_addr,
+            10, // default max no-data retries for client session
+        );
         let (stream_name, _) = RtmpUrlParser::parse_stream_name_with_query(&raw_stream_name);
 
         Self {

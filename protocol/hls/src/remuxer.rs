@@ -11,6 +11,8 @@ pub struct HlsRemuxer {
     event_producer: StreamHubEventSender,
     need_record: bool,
     data_dir: Option<String>,
+    max_no_data_retries: usize,
+    no_data_sleep_ms: u64,
 }
 
 impl HlsRemuxer {
@@ -19,12 +21,16 @@ impl HlsRemuxer {
         event_producer: StreamHubEventSender,
         need_record: bool,
         data_dir: Option<String>,
+        max_no_data_retries: usize,
+        no_data_sleep_ms: u64,
     ) -> Self {
         Self {
             client_event_consumer: consumer,
             event_producer,
             need_record,
             data_dir,
+            max_no_data_retries,
+            no_data_sleep_ms,
         }
     }
 
@@ -45,6 +51,8 @@ impl HlsRemuxer {
                             5,
                             self.need_record,
                             self.data_dir.clone(),
+                            self.max_no_data_retries,
+                            self.no_data_sleep_ms,
                         );
 
                         tokio::spawn(async move {

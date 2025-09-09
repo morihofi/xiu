@@ -80,6 +80,7 @@ pub struct RtspClientSession {
 
     event_producer: StreamHubEventSender,
     pub is_running: Arc<AtomicBool>,
+    response_header_retry_max: usize,
 }
 
 impl RtspClientSession {
@@ -89,6 +90,7 @@ impl RtspClientSession {
         protocol_type: ProtocolType,
         event_producer: StreamHubEventSender,
         client_type: ClientSessionType,
+        response_header_retry_max: usize,
     ) -> Result<Self, SessionError> {
         let stream = TcpStream::connect(address.clone()).await?;
 
@@ -112,6 +114,7 @@ impl RtspClientSession {
 
             stream_handler: Arc::new(RtspStreamHandler::new()),
             is_running: Arc::new(AtomicBool::new(true)),
+            response_header_retry_max,
         })
     }
 
@@ -472,7 +475,7 @@ impl RtspClientSession {
                         if rtsp_response_data.body.is_none()
                             || uint_num > rtsp_response_data.body.clone().unwrap().len()
                         {
-                            if retry_count >= 5 {
+                            if retry_count >= self.response_header_retry_max {
                                 log::error!(
                                     "corrupted rtsp message={}",
                                     std::str::from_utf8(&data)?

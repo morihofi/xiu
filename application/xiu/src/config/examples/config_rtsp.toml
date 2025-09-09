@@ -7,6 +7,10 @@ port = 8554
 relay_enabled = false
 # RTP packetization MTU (bytes). Defaults to 1400 if not set.
 mtu = 1400
+# optional: max header read retries (default: 5)
+# header_retry_max = 5
+# optional: max retries during PLAY when no packet data received (default: 10)
+# play_no_data_retry_max = 10
 [rtsp.auth]
 pull_enabled = false
 push_enabled = false

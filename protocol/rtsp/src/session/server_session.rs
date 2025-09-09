@@ -85,6 +85,8 @@ pub struct RtspServerSession {
     pub is_normal_exit: bool,
     remote_addr: SocketAddr,
     mtu: usize,
+    header_retry_max: usize,
+    play_no_data_retry_max: usize,
 }
 
 pub struct InterleavedBinaryData {
@@ -122,6 +124,8 @@ impl RtspServerSession {
         event_producer: StreamHubEventSender,
         auth: Option<Auth>,
         mtu: usize,
+        header_retry_max: usize,
+        play_no_data_retry_max: usize,
     ) -> Self {
         // let remote_addr = if let Ok(addr) = stream.peer_addr() {
         //     log::info!("server session: {}", addr.to_string());
@@ -149,6 +153,8 @@ impl RtspServerSession {
             is_normal_exit: false,
             remote_addr,
             mtu,
+            header_retry_max,
+            play_no_data_retry_max,
         };
         log::info!("rtsp server session start: remote_addr={}", this.remote_addr);
         this
@@ -229,7 +235,7 @@ impl RtspServerSession {
             let data = self.reader.get_remaining_bytes();
             let data_slice = &data[..];
             if !data_slice.windows(4).any(|w| w == b"\r\n\r\n") {
-                if retry_count >= 5 {
+                if retry_count >= self.header_retry_max {
                     return Err(SessionError {
                         value: SessionErrorValue::RtspHeaderNotComplete,
                     });
@@ -252,7 +258,7 @@ impl RtspServerSession {
                         if rtsp_request_data.body.is_none()
                             || uint_num > rtsp_request_data.body.clone().unwrap().len()
                         {
-                            if retry_count >= 5 {
+                            if retry_count >= self.header_retry_max {
                                 log::error!(
                                     "corrupted rtsp message={}",
                                     std::str::from_utf8(data_slice)?
@@ -791,7 +797,7 @@ impl RtspServerSession {
                     "handle_play: no packet data received, retry {} times",
                     retry_times
                 );
-                if retry_times > 10 {
+                if retry_times > self.play_no_data_retry_max {
                     return Err(SessionError {
                         value: SessionErrorValue::CannotReceivePacketData,
                     });

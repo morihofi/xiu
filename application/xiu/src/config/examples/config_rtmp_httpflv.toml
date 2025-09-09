@@ -5,6 +5,10 @@
 [rtmp]
 enabled = true
 port = 1935
+# optional:
+# gop_num = 0
+# max_no_data_retries = 10
+# read_timeout_ms = 2000
 
 ########################################
 # HTTPFLV configurations               #
@@ -12,6 +16,8 @@ port = 1935
 [httpflv]
 enabled = true
 port = 8081
+# optional:
+# max_no_data_retries = 10
 
 [httpnotify]
 enabled = false

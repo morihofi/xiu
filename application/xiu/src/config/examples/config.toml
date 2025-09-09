@@ -6,6 +6,10 @@
 enabled = true
 port = 1935
 gop_num = 0
+# optional: max retries when no media data is received (default: 10)
+# max_no_data_retries = 10
+# optional: read timeout in milliseconds for server read (default: 2000)
+# read_timeout_ms = 2000
 [rtmp.auth]
 pull_enabled = false
 push_enabled = false
@@ -48,6 +52,10 @@ enabled = false
 port = 445
 # RTP packetization MTU (bytes). Defaults to 1400 if not set.
 mtu = 1400
+# optional: max header read retries for server/client (default: 5)
+# header_retry_max = 5
+# optional: max retries during PLAY when no packet data received (default: 10)
+# play_no_data_retry_max = 10
 [rtsp.auth]
 pull_enabled = true
 push_enabled = true
@@ -72,6 +80,8 @@ algorithm = "simple"
 [httpflv]
 enabled = false
 port = 8081
+# optional: max retries when no media data is received (default: 10)
+# max_no_data_retries = 10
 [httpflv.auth]
 pull_enabled = true
 # simple, md5 or none
@@ -85,6 +95,10 @@ algorithm = "simple"
 enabled = false
 port = 8080
 need_record = false
+# optional: max retries when no frame data is received (default: 10)
+# max_no_data_retries = 10
+# optional: sleep between retries in milliseconds (default: 100)
+# no_data_sleep_ms = 100
 [hls.auth]
 pull_enabled = true
 # simple, md5 or none

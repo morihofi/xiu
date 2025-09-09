@@ -106,6 +106,10 @@ pub struct RtmpConfig {
     pub enabled: bool,
     pub port: usize,
     pub gop_num: Option<usize>,
+    // Max times to retry when no media data is received from channel (default: 10)
+    pub max_no_data_retries: Option<usize>,
+    // Server read timeout in milliseconds when reading client data (default: 2000ms)
+    pub read_timeout_ms: Option<u64>,
     pub pull: Option<RtmpPullConfig>,
     pub push: Option<Vec<RtmpPushConfig>>,
     pub auth: Option<AuthConfig>,
@@ -130,6 +134,10 @@ pub struct RtspConfig {
     pub auth: Option<AuthConfig>,
     pub relay_enabled: bool,
     pub mtu: Option<usize>,
+    // Max header read retries for both server and client sessions (default: 5)
+    pub header_retry_max: Option<usize>,
+    // Max retries during PLAY when no packet data is received (default: 10)
+    pub play_no_data_retry_max: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -144,6 +152,8 @@ pub struct HttpFlvConfig {
     pub enabled: bool,
     pub port: usize,
     pub auth: Option<AuthConfig>,
+    // Max times to retry when no media data is received (default: 10)
+    pub max_no_data_retries: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -153,6 +163,10 @@ pub struct HlsConfig {
     //record or not
     pub need_record: bool,
     pub auth: Option<AuthConfig>,
+    // Max times to retry when no frame data is received (default: 10)
+    pub max_no_data_retries: Option<usize>,
+    // Sleep duration between retries in milliseconds (default: 100ms)
+    pub no_data_sleep_ms: Option<u64>,
 }
 
 pub enum LogLevel {

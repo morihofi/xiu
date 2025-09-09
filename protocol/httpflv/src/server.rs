@@ -20,7 +20,11 @@ static NOTFOUND: &[u8] = b"Not Found";
 static UNAUTHORIZED: &[u8] = b"Unauthorized";
 
 async fn handle_connection(
-    State((event_producer, auth)): State<(StreamHubEventSender, Option<Auth>)>, // event_producer: ChannelEventProducer
+    State((event_producer, auth, max_no_data_retries)): State<(
+        StreamHubEventSender,
+        Option<Auth>,
+        usize,
+    )>, // event_producer: ChannelEventProducer
     ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
     req: Request<Body>,
 ) -> Response<Body> {
@@ -61,6 +65,7 @@ async fn handle_connection(
                 http_response_data_producer,
                 req.uri().to_string(),
                 remote_addr,
+                max_no_data_retries,
             );
             log::info!(
                 "httpflv subscribe: app={} stream={} remote_addr={}",
@@ -93,6 +98,7 @@ pub async fn run(
     event_producer: StreamHubEventSender,
     port: usize,
     auth: Option<Auth>,
+    max_no_data_retries: usize,
 ) -> Result<()> {
     let listen_address = format!("0.0.0.0:{port}");
     let sock_addr: SocketAddr = listen_address.parse().unwrap();
@@ -101,7 +107,8 @@ pub async fn run(
 
     log::info!("Httpflv server listening on http://{}", sock_addr);
 
-    let handle_connection = handle_connection.with_state((event_producer.clone(), auth));
+    let handle_connection =
+        handle_connection.with_state((event_producer.clone(), auth, max_no_data_retries));
 
     axum::serve(
         listener,

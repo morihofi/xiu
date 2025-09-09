@@ -69,6 +69,7 @@ pub struct Common {
     pub stream_handler: Arc<RtmpStreamHandler>,
     /* now used for subscriber session */
     statistic_data_sender: Option<StatisticDataSender>,
+    max_no_data_retries: usize,
 }
 
 impl Common {
@@ -77,6 +78,7 @@ impl Common {
         event_producer: StreamHubEventSender,
         session_type: SessionType,
         remote_addr: Option<SocketAddr>,
+        max_no_data_retries: usize,
     ) -> Self {
         //only used for init,since I don't found a better way to deal with this.
         let (init_producer, init_consumer) = mpsc::unbounded_channel();
@@ -96,6 +98,7 @@ impl Common {
             stream_handler: Arc::new(RtmpStreamHandler::new()),
             statistic_data_sender: None,
             //cache: None,
+            max_no_data_retries,
         }
     }
     pub fn session_id(&self) -> Uuid {
@@ -151,7 +154,7 @@ impl Common {
                     retry_times
                 );
 
-                if retry_times > 10 {
+                if retry_times > self.max_no_data_retries {
                     return Err(SessionError {
                         value: SessionErrorValue::NoMediaDataReceived,
                     });

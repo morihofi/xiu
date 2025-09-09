@@ -11,3 +11,4 @@ thiserror = "1.0"
 tokio = { version = "1", features = ["sync"] }
 xmpegts = { path = "../../library/container/mpegts/" }
 chrono = "0.4"
+log = "0.4"

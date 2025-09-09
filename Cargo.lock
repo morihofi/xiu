@@ -1941,6 +1941,7 @@ dependencies = [
  "bytes",
  "chrono",
  "futures",
+ "log",
  "streamhub",
  "thiserror",
  "tokio",

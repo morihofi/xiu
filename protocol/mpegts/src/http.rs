@@ -5,8 +5,9 @@ use std::net::SocketAddr;
 use thiserror::Error;
 
 use streamhub::define::{
-    NotifyInfo, PacketData, PacketDataReceiver, ProtocolId, StatisticData, StatisticDataSender,
-    StreamHubEvent, StreamHubEventSender, StreamOp, SubDataType, SubscribeDesc, SubscriberInfo,
+    Information, InformationSender, NotifyInfo, PacketData, PacketDataReceiver, ProtocolId,
+    StatisticData, StatisticDataSender, StreamHubEvent, StreamHubEventSender, StreamOp,
+    SubDataType, SubscribeDesc, SubscriberInfo,
 };
 use streamhub::{
     stream::StreamIdentifier,
@@ -57,6 +58,11 @@ pub struct HttpTs {
     request_url: String,
     remote_addr: SocketAddr,
     max_no_data_retries: usize,
+
+    // AAC codec parameters from AudioSpecificConfig
+    aac_profile: Option<u8>,
+    aac_sf_index: Option<u8>,
+    aac_channel_config: Option<u8>,
 }
 
 impl HttpTs {
@@ -94,11 +100,15 @@ impl HttpTs {
             request_url,
             remote_addr,
             max_no_data_retries,
+            aac_profile: None,
+            aac_sf_index: None,
+            aac_channel_config: None,
         }
     }
 
     pub async fn run(&mut self) -> Result<(), HttpTsError> {
         self.subscribe_from_stream_hub().await?;
+        self.fetch_codec_config().await.ok();
         self.send_media_stream().await?;
         Ok(())
     }
@@ -110,11 +120,21 @@ impl HttpTs {
             if let Some(data) = self.data_receiver.recv().await {
                 match data {
                     PacketData::Audio { timestamp, data } => {
+                        let payload = if let (Some(profile), Some(sf_idx), Some(chan_cfg)) =
+                            (self.aac_profile, self.aac_sf_index, self.aac_channel_config)
+                        {
+                            let mut adts = build_adts_header(profile, sf_idx, chan_cfg, data.len());
+                            adts.extend_from_slice(&data);
+                            adts
+                        } else {
+                            // Fallback: pass-through raw (may decode poorly)
+                            data
+                        };
                         if let Some(sender) = &self.statistic_data_sender {
                             let _ = sender.send(StatisticData::Audio {
                                 uuid: Some(self.subscriber_id),
                                 aac_packet_type: 1,
-                                data_size: data.len(),
+                                data_size: payload.len(),
                                 duration: 0,
                             });
                         }
@@ -123,7 +143,7 @@ impl HttpTs {
                             (timestamp as i64) * 90,
                             (timestamp as i64) * 90,
                             0,
-                            data,
+                            payload,
                         )?;
                     }
                     PacketData::Video {
@@ -153,9 +173,16 @@ impl HttpTs {
 
                 let out = self.ts_muxer.get_data();
                 if !out.is_empty() {
-                    self.http_response_data_producer
-                        .start_send(Ok(out))
-                        .map_err(|_| HttpTsError::ChannelSend)?;
+                    if let Err(e) = self.http_response_data_producer.start_send(Ok(out)) {
+                        if e.is_disconnected() {
+                            log::info!("TS client disconnected; stopping and unsubscribing");
+                            break;
+                        } else {
+                            log::error!("send TS chunk error: {}", e);
+                            retry_count += 1;
+                            continue;
+                        }
+                    }
                 }
                 retry_count = 0;
             } else {
@@ -252,4 +279,77 @@ impl HttpTs {
 
         Ok(())
     }
+
+    async fn fetch_codec_config(&mut self) -> Result<(), HttpTsError> {
+        // Ask publisher for codec info (ASC for AAC)
+        let (info_tx, mut info_rx) = tokio::sync::mpsc::unbounded_channel::<Information>();
+        let identifier = StreamIdentifier::Rtmp {
+            app_name: self.app_name.clone(),
+            stream_name: self.stream_name.clone(),
+        };
+        self.event_producer
+            .send(StreamHubEvent::Request {
+                identifier,
+                sender: info_tx,
+            })
+            .map_err(|_| HttpTsError::ChannelSend)?;
+
+        // Best-effort single receive
+        if let Some(info) = info_rx.recv().await {
+            if let Information::CodecConfig { video: _, audio } = info {
+                if let Some(a) = audio {
+                    if a.codec as u8 == 10 /* AAC */ {
+                        if let Some(asc) = a.asc {
+                            if let Some((profile, sf_idx, chan_cfg)) = parse_aac_asc(&asc[..]) {
+                                self.aac_profile = Some(profile);
+                                self.aac_sf_index = Some(sf_idx);
+                                self.aac_channel_config = Some(chan_cfg);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+// Parse AudioSpecificConfig (MPEG-4 AAC) to get profile, sample rate index, channel config
+fn parse_aac_asc(asc: &[u8]) -> Option<(u8, u8, u8)> {
+    if asc.len() < 2 {
+        return None;
+    }
+    let b0 = asc[0];
+    let b1 = asc[1];
+    let audio_object_type = (b0 >> 3) & 0x1F; // 5 bits
+    let sampling_frequency_index = ((b0 & 0x07) << 1) | ((b1 >> 7) & 0x01); // 4 bits
+    let channel_configuration = (b1 >> 3) & 0x0F; // 4 bits
+    // ADTS uses profile = audioObjectType - 1
+    let profile_adts = if audio_object_type >= 1 {
+        (audio_object_type - 1) & 0x03
+    } else {
+        0
+    };
+    Some((profile_adts, sampling_frequency_index, channel_configuration as u8))
+}
+
+// Build a 7-byte ADTS header for an AAC raw frame
+fn build_adts_header(profile: u8, sf_idx: u8, chan_cfg: u8, payload_len: usize) -> BytesMut {
+    let adts_len = 7 + payload_len;
+    let mut hdr = BytesMut::with_capacity(7);
+    hdr.extend_from_slice(&[
+        0xFF, // syncword 0xFFF
+        0xF1, // 1111 0001: sync continue, MPEG-4, layer 00, protection_absent=1
+        // profile(2), sampling_freq_idx(4), private_bit(1), channel_conf (high 1 bit)
+        ((profile & 0x03) << 6) | ((sf_idx & 0x0F) << 2) | ((chan_cfg >> 2) & 0x01),
+        // channel_conf (low 2 bits), originality, home, copyright bits, frame length high 2 bits
+        ((chan_cfg & 0x03) << 6) | (((adts_len >> 11) & 0x03) as u8),
+        // frame length middle 8 bits
+        ((adts_len >> 3) & 0xFF) as u8,
+        // frame length low 3 bits | fullness high 5 bits
+        (((adts_len & 0x07) as u8) << 5) | 0x1F,
+        // fullness low 6 bits | number_of_raw_data_blocks_in_frame(2) (0)
+        0xFC,
+    ]);
+    hdr
 }

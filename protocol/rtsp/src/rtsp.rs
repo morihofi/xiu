@@ -3,6 +3,7 @@ use streamhub::define::StreamHubEventSender;
 use super::session::server_session::RtspServerSession;
 use commonlib::auth::Auth;
 use std::net::SocketAddr;
+use std::io::ErrorKind;
 use tokio::io::Error;
 use tokio::net::TcpListener;
 
@@ -22,10 +23,19 @@ impl RtspServer {
     }
 
     pub async fn run(&mut self) -> Result<(), Error> {
-        let socket_addr: &SocketAddr = &self.address.parse().unwrap();
+        // Parse address safely; surface error instead of panicking
+        let socket_addr: SocketAddr = match self.address.parse() {
+            Ok(addr) => addr,
+            Err(e) => {
+                return Err(Error::new(ErrorKind::InvalidInput, format!(
+                    "invalid RTSP bind address '{}': {}",
+                    self.address, e
+                )));
+            }
+        };
         let listener = TcpListener::bind(socket_addr).await?;
 
-        log::info!("Rtsp server listening on tcp://{}", socket_addr);
+        log::info!("RTSP server listening on tcp://{}", socket_addr);
         loop {
             let (tcp_stream, _) = listener.accept().await?;
             let mut session =

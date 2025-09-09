@@ -98,7 +98,7 @@ impl InterleavedBinaryData {
     // followed by the length of the encapsulated binary data as a binary,
     // two-byte integer in network byte order
     pub fn new(reader: &mut BytesReader) -> Result<Option<Self>, SessionError> {
-        let is_dollar_sign = reader.advance_u8()? == 0x24;
+        let is_dollar_sign = reader.advance_u8()? == crate::rtsp_utils::INTERLEAVED_MAGIC;
         log::debug!("dollar sign: {}", is_dollar_sign);
         if is_dollar_sign {
             reader.read_u8()?;
@@ -640,22 +640,22 @@ impl RtspServerSession {
 
                     match protocol {
                         ProtocolType::TCP => {
-                            let channel = interleaved.map(|v| v[0]).unwrap_or(0);
-                            rtp_channel_guard.on_packet_handler(Box::new(
-                                move |io, packet: RtpPacket| {
-                                    Box::pin(async move {
-                                        let mut writer = AsyncBytesWriter::new(io.clone());
-                                        let bytes = packet.marshal()?;
-                                        writer.write_u8(0x24)?;
-                                        writer.write_u8(channel)?;
-                                        writer.write_u16::<BigEndian>(bytes.len() as u16)?;
-                                        writer.write(&bytes[..])?;
-                                        writer.flush().await?;
-                                        Ok(())
-                                    })
-                                },
-                            ));
-                        }
+                    let channel = interleaved.map(|v| v[0]).unwrap_or(0);
+                    rtp_channel_guard.on_packet_handler(Box::new(
+                        move |io, packet: RtpPacket| {
+                            Box::pin(async move {
+                                let mut writer = AsyncBytesWriter::new(io.clone());
+                                let bytes = packet.marshal()?;
+                                writer.write_u8(crate::rtsp_utils::INTERLEAVED_MAGIC)?;
+                                writer.write_u8(channel)?;
+                                writer.write_u16::<BigEndian>(bytes.len() as u16)?;
+                                writer.write(&bytes[..])?;
+                                writer.flush().await?;
+                                Ok(())
+                            })
+                        },
+                    ));
+                }
                         ProtocolType::UDP => {
                             rtp_channel_guard.on_packet_handler(Box::new(
                                 move |io, packet: RtpPacket| {

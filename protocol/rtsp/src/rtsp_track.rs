@@ -129,4 +129,8 @@ impl RtspTrack {
     pub async fn create_packer(&mut self, io: Arc<Mutex<Box<dyn TNetIO + Send + Sync>>>) {
         self.rtp_channel.lock().await.create_packer(io);
     }
+
+    pub async fn set_mtu(&mut self, mtu: usize) {
+        self.rtp_channel.lock().await.set_mtu(mtu);
+    }
 }

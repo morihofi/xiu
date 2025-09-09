@@ -24,7 +24,7 @@ impl RtspAdapter {
         if let Ok(bytes) = rtp_packet.marshal() {
             // Wrap with RTSP interleaved header ('$' + channel + len)
             let mut framed = BytesMut::with_capacity(bytes.len() + 4);
-            framed.extend_from_slice(&[b'$', channel_id]);
+            framed.extend_from_slice(&[crate::rtsp_utils::INTERLEAVED_MAGIC, channel_id]);
             framed.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
             framed.extend_from_slice(&bytes[..]);
             framed
@@ -45,7 +45,7 @@ impl ProtocolAdapter for RtspAdapter {
     fn to_packet(&self, mut payload: BytesMut) -> MediaPacket {
         // Remove RTSP interleaved framing if present. An interleaved frame
         // starts with '$' followed by a channel byte and a 16-bit length field.
-        if payload.len() >= 4 && payload[0] == b'$' {
+        if payload.len() >= 4 && payload[0] == crate::rtsp_utils::INTERLEAVED_MAGIC {
             let mut reader = BytesReader::new(payload);
             // Skip '$' and channel id
             let _ = reader.advance_bytes(2);

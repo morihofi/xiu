@@ -48,4 +48,4 @@ impl fmt::Display for ServerSessionType {
     }
 }
 
-pub const USER_AGENT: &str = "xiu 0.12.8";
+pub const USER_AGENT: &str = concat!("xiu ", env!("CARGO_PKG_VERSION"));

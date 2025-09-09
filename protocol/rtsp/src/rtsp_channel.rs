@@ -46,6 +46,7 @@ pub struct RtpChannel {
     ssrc: u32,
     init_sequence: u16,
     timestamp: u32,
+    mtu: usize,
 }
 
 #[derive(Default)]
@@ -65,6 +66,8 @@ impl RtpChannel {
             rtp_unpacker: None,
             init_sequence: 0,
             timestamp: 0,
+            // Default MTU used for RTP payload sizing when fragmenting
+            mtu: 1400,
         };
         rtp_channel.create_unpacker();
         rtp_channel
@@ -124,6 +127,10 @@ impl RtpChannel {
     pub fn get_timestamp(&self) -> u32 {
         self.timestamp
     }
+
+    pub fn set_mtu(&mut self, mtu: usize) {
+        self.mtu = mtu;
+    }
 }
 
 impl TRtpFunc for RtpChannel {
@@ -148,7 +155,7 @@ impl TRtpFunc for RtpChannel {
                     self.codec_info.payload_type,
                     self.ssrc,
                     self.init_sequence,
-                    1400,
+                    self.mtu,
                     io,
                 )));
             }
@@ -157,7 +164,7 @@ impl TRtpFunc for RtpChannel {
                     self.codec_info.payload_type,
                     self.ssrc,
                     self.init_sequence,
-                    1400,
+                    self.mtu,
                     io,
                 )));
             }
@@ -216,7 +223,7 @@ impl RtcpChannel {
             let mut bytes_writer = AsyncBytesWriter::new(rtcp_io);
             match net_type {
                 bytesio::bytesio::NetType::TCP => {
-                    bytes_writer.write_u8(0x24)?;
+                    bytes_writer.write_u8(crate::rtsp_utils::INTERLEAVED_MAGIC)?;
                     bytes_writer.write_u8(self.channel_identifier)?;
                     bytes_writer.write_u16::<BigEndian>(msg.len() as u16)?;
                 }

@@ -8,6 +8,7 @@ macro_rules! scanf {
 pub(crate) use scanf;
 
 use bytes::BytesMut;
+pub const INTERLEAVED_MAGIC: u8 = 0x24; // '$' per RTSP interleaved framing
 pub fn print(title: &str, data: BytesMut) {
     println!("==========={}:{}", title, data.len());
     let mut idx = 0;
